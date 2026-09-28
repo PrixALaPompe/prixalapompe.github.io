@@ -1,0 +1,89 @@
+name: Mise à jour des prix
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # toutes les 30 minutes (GitHub peut retarder un peu)
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer numpy
+        run: pip install numpy
+
+      - name: Version du miroir d'historique
+        id: mirror
+        run: echo "sha=$(git ls-remote https://github.com/MikeColombet/prix-essence-nord HEAD | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache de l'historique
+        uses: actions/cache@v4
+        with:
+          path: .cache/hist
+          key: hist-${{ steps.mirror.outputs.sha }}
+          restore-keys: hist-
+
+      - name: Configurer Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Données (flux officiel + historique)
+        env:
+          CACHE_DIR: .cache/hist
+        run: python scripts/build_data.py _build
+
+      - name: Site et pages de référencement
+        env:
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
+          GOOGLE_SITE_VERIFICATION: ${{ vars.GOOGLE_SITE_VERIFICATION }}
+          BING_SITE_VERIFICATION: ${{ vars.BING_SITE_VERIFICATION }}
+        run: python scripts/build_site.py _build _site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  ping:
+    # Signale le sitemap a Bing / IndexNow une fois par jour (le premier passage apres 6h UTC)
+    needs: deploy
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: IndexNow
+        env:
+          KEY: e42a984183936eeda3fe00e9b695eb46
+        run: |
+          H=$(date -u +%H); M=$(date -u +%M)
+          if [ -n "$KEY" ] && [ "$H" = "06" ] && [ "$M" -lt 30 ]; then
+            HOST="${{ github.repository_owner }}.github.io"
+            curl -s -X POST "https://api.indexnow.org/indexnow" -H "Content-Type: application/json" \
+              -d "{\"host\":\"$HOST\",\"key\":\"$KEY\",\"keyLocation\":\"https://$HOST/${{ github.event.repository.name }}/$KEY.txt\",\"urlList\":[\"https://$HOST/${{ github.event.repository.name }}/\",\"https://$HOST/${{ github.event.repository.name }}/sitemap.xml\"]}" || true
+          fi
