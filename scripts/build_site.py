@@ -8,7 +8,7 @@ Usage : SITE_URL=https://pseudo.github.io/prix-a-la-pompe python3 build_site.py 
             sitemap.xml, robots.txt, donnees de la carte).
 Bibliotheque standard uniquement.
 """
-import json, os, re, sys, shutil, unicodedata, math, html
+import json, os, re, sys, shutil, unicodedata, math, html, glob
 from datetime import datetime, date, timedelta
 from urllib.parse import urlparse
 
@@ -45,6 +45,10 @@ def ct(v):
     return f"{abs(v) / 10:.1f}".replace(".", ",")
 
 
+def fmt2(x):
+    return f"{x:.2f}".replace(".", ",")
+
+
 def fr_date(d):
     return f"{d.day} {MONTHS[d.month - 1]} {d.year}"
 
@@ -72,11 +76,30 @@ def km(a, b, c, d):
 
 # ------------------------------------------------------------------ gabarit
 HEADER_NAV = [("Carte", "/"), ("Gazole", "/prix-gazole/"), ("SP95-E10", "/prix-sp95-e10/"),
-              ("SP98", "/prix-sp98/"), ("Départements", "/departements/")]
+              ("SP98", "/prix-sp98/"), ("Enseignes", "/enseignes/"), ("Départements", "/departements/"),
+              ("Actualités", "/actualites/")]
+TANK = 50  # litres, pour les exemples de plein
 
 
-def page(path, title, desc, body, crumbs=None, jsonld=None, updated=None):
+def share_bar(path, text):
+    u = SITE_URL + path
+    from urllib.parse import quote
+    q, t = quote(u, safe=""), quote(text, safe="")
+    return (f'<div class="share"><span>Partager :</span>'
+            f'<a href="https://wa.me/?text={t}%20{q}" rel="noopener" target="_blank">WhatsApp</a>'
+            f'<a href="https://www.facebook.com/sharer/sharer.php?u={q}" rel="noopener" target="_blank">Facebook</a>'
+            f'<a href="https://twitter.com/intent/tweet?text={t}&url={q}" rel="noopener" target="_blank">X</a>'
+            f'<button type="button" data-copy="{E(u)}">Copier le lien</button></div>')
+
+
+COPY_JS = """<script>document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(!b)return;
+var u=b.getAttribute('data-copy');(navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(function(){b.textContent='Lien copié'},function(){prompt('Copiez ce lien :',u)});});</script>"""
+
+
+def page(path, title, desc, body, crumbs=None, jsonld=None, updated=None, share=True, robots="index,follow,max-image-preview:large"):
     canon = SITE_URL + path
+    if share and body:
+        body = body + share_bar(path, title)
     ld = list(jsonld or [])
     if crumbs:
         ld.append({"@context": "https://schema.org", "@type": "BreadcrumbList",
@@ -98,7 +121,7 @@ def page(path, title, desc, body, crumbs=None, jsonld=None, updated=None):
 <title>{E(title)}</title>
 <meta name="description" content="{E(desc)}">
 <link rel="canonical" href="{canon}">
-<meta name="robots" content="index,follow,max-image-preview:large">
+<meta name="robots" content="{robots}">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="{SITE_NAME}">
 <meta property="og:locale" content="fr_FR">
@@ -126,8 +149,9 @@ def page(path, title, desc, body, crumbs=None, jsonld=None, updated=None):
 </main>
 <footer class="foot"><div class="wrap">
 <p>Prix officiels déclarés par les stations sur <a href="https://www.prix-carburants.gouv.fr" rel="noopener">prix-carburants.gouv.fr</a> (Ministère de l'Économie), actualisés automatiquement{(' · relevé du ' + E(updated)) if updated else ''}.</p>
-<p><a href="{url('/departements/')}">Tous les départements</a> · <a href="{url('/a-propos/')}">Sources et méthode</a> · Noms des stations : OpenStreetMap via hass-prixcarburant.</p>
+<p><a href="{url('/departements/')}">Tous les départements</a> · <a href="{url('/enseignes/')}">Prix par enseigne</a> · <a href="{url('/prix-carburant-autoroute/')}">Prix sur autoroute</a> · <a href="{url('/actualites/')}">Actualités des prix</a> · <a href="{url('/widget/')}">Widget pour votre site</a> · <a href="{url('/a-propos/')}">Sources et méthode</a></p>
 </div></footer>
+{COPY_JS}
 </body>
 </html>
 """
@@ -177,6 +201,136 @@ def spark_svg(values, w=720, h=180, color="#1F3A93"):
             f'<polyline points="{" ".join(pts)}" fill="none" stroke="{color}" stroke-width="2.2" stroke-linejoin="round"/></svg>')
 
 
+def dept_history(src, days=120):
+    """Moyenne quotidienne par departement sur `days` jours, a partir de data/st/*.json."""
+    res, start = {}, None
+    for fp in glob.glob(os.path.join(src, "data", "st", "*.json")):
+        H = json.load(open(fp))
+        start = H.get("start", start)
+        sums = [[0] * (days + 1) for _ in range(6)]
+        cnts = [[0] * (days + 1) for _ in range(6)]
+        for series in H["s"].values():
+            for ks, pts in series.items():
+                k = int(ks)
+                for j, (d0, p) in enumerate(pts):
+                    end = min(pts[j + 1][0] if j + 1 < len(pts) else days + 1, d0 + 30, days + 1)
+                    for dd in range(max(d0, 0), end):
+                        sums[k][dd] += p; cnts[k][dd] += 1
+        res[os.path.basename(fp)[:-5]] = [[round(s / c) if c >= 3 else None for s, c in zip(sums[k], cnts[k])] for k in range(6)]
+    return res, (date.fromisoformat(start) if start else None)
+
+
+def st_key(cp):
+    return "20" if cp.startswith("20") else cp[:2]
+
+
+def trend_sentence(series, label, where):
+    vals = [v for v in series if v]
+    if len(vals) < 20:
+        return ""
+    dv = vals[-1] - vals[0]
+    if abs(dv) < 5:
+        return f"En quatre mois, le prix moyen du {label} {where} est resté stable, autour de {eur(vals[-1])}."
+    return (f"En quatre mois, le prix moyen du {label} {where} a {'augmenté' if dv > 0 else 'baissé'} de "
+            f"<b>{ct(dv)} centimes</b> par litre, passant de {eur(vals[0])} à {eur(vals[-1])}.")
+
+
+def mini_chart(series, start, w=720, h=170, label=""):
+    vals = [v for v in series if v]
+    if len(vals) < 20:
+        return ""
+    lo, hi = min(vals), max(vals)
+    pad = max((hi - lo) * .15, 15)
+    lo, hi = lo - pad, hi + pad
+    n = len(series)
+    X = lambda j: 56 + j / (n - 1) * (w - 70)
+    Y = lambda v: 10 + (hi - v) / (hi - lo) * (h - 40)
+    pts = " ".join(f"{X(j):.1f},{Y(v):.1f}" for j, v in enumerate(series) if v)
+    g = ""
+    for tk in range(4):
+        v = lo + (hi - lo) * tk / 3
+        g += f'<line x1="56" x2="{w - 14}" y1="{Y(v):.1f}" y2="{Y(v):.1f}" class="g"/><text x="50" y="{Y(v) + 4:.1f}" text-anchor="end">{f"{v / 1000:.2f}".replace(".", ",")}</text>'
+    if start:
+        for j in range(0, n, 30):
+            dd = start + timedelta(days=j)
+            g += f'<text x="{X(j):.1f}" y="{h - 8}" text-anchor="middle">{dd.day} {MONTHS[dd.month - 1][:4]}.</text>'
+    return (f'<svg class="chart" viewBox="0 0 {w} {h}" role="img" aria-label="{E(label)}">{g}'
+            f'<polyline points="{pts}" fill="none" stroke="#1F3A93" stroke-width="2.2" stroke-linejoin="round"/></svg>')
+
+
+def extra_sections(idx, S, where, main_k, dep_series, hstart, dep_name, SV, brand_path):
+    """Contenu propre a chaque lieu : economie sur un plein, enseignes, 24h/24, tendance, FAQ."""
+    out, faq = [], []
+    lab = FUELS[main_k][3]
+    vals = sorted(S[i][5][main_k] for i in idx if S[i][5][main_k])
+    cheapest = min((i for i in idx if S[i][5][main_k]), key=lambda i: S[i][5][main_k], default=None)
+    if vals:
+        avg = sum(vals) / len(vals)
+        txt = (f"Avec un prix moyen de {eur(round(avg))}, un plein de {TANK} litres de {lab} coûte environ "
+               f"<b>{avg * TANK / 1000:.0f} €</b> {where}.")
+        if len(vals) > 1 and vals[-1] - vals[0] >= 10:
+            gain = (vals[-1] - vals[0]) * TANK / 1000
+            gs = f"{gain:.2f}".replace(".", ",")
+            txt += (f" Entre la station la moins chère ({eur(vals[0])}) et la plus chère ({eur(vals[-1])}), "
+                    f"l'écart atteint <b>{gs} €</b> sur un plein.")
+        out.append(f'<h2>Combien coûte un plein {where} ?</h2><p class="prose">{txt}</p>')
+        faq.append((f"Combien coûte un plein de {lab} {where} ?",
+                    re.sub("<[^>]+>", "", txt)))
+    if cheapest is not None:
+        s = S[cheapest]
+        ans = (f"Le {fr_date(date.today())}, la station la moins chère pour le {lab} {where} est "
+               f"{s[8] or 'la station du ' + s[4]} ({s[4]}, {s[2]} {s[3]}), à {eur(s[5][main_k])} le litre.")
+        faq.insert(0, (f"Quelle est la station la moins chère {where} ?", ans))
+    # enseignes
+    br = {}
+    for i in idx:
+        if S[i][9] and S[i][5][main_k]:
+            br.setdefault(S[i][9], []).append(S[i][5][main_k])
+    if len(br) >= 2:
+        rows = sorted(((sum(v) / len(v), b, len(v)) for b, v in br.items()), key=lambda x: x[0])
+        def blink(b):
+            return f'<a href="{url(brand_path[b])}">{E(b)}</a>' if b in brand_path else E(b)
+        tr = "".join(f'<tr><td>{blink(b)}</td><td>{n}</td><td>{eur(round(a))}</td></tr>' for a, b, n in rows)
+        out.append(f'<h2>Prix du {E(lab)} par enseigne {where}</h2><div class="tw"><table class="pt"><thead><tr><th>Enseigne</th><th>Stations</th><th>Prix moyen</th></tr></thead><tbody>{tr}</tbody></table></div>')
+        faq.append((f"Quelle enseigne est la moins chère {where} ?",
+                    f"Pour le {lab}, l'enseigne la moins chère en moyenne {where} est {rows[0][1]} ({eur(round(rows[0][0]))}), "
+                    f"et la plus chère {rows[-1][1]} ({eur(round(rows[-1][0]))})."))
+    # 24h/24 et services
+    h24 = [i for i in idx if len(S[i]) > 11 and S[i][11]]
+    if h24:
+        names = ", ".join(E(S[i][8] or ("station " + S[i][4])) for i in h24[:8])
+        out.append(f'<h2>Stations ouvertes 24h/24 {where}</h2><p class="prose">{len(h24)} station{"s" if len(h24) > 1 else ""} '
+                   f'{where} {"disposent" if len(h24) > 1 else "dispose"} d\'un automate de paiement par carte accessible 24h/24 : {names}{"…" if len(h24) > 8 else ""}.</p>')
+        faq.append((f"Peut-on faire le plein 24h/24 {where} ?",
+                    f"Oui, {len(h24)} station{'s' if len(h24) > 1 else ''} {where} {'ont' if len(h24) > 1 else 'a'} un automate 24h/24."))
+    elif any(len(S[i]) > 11 for i in idx) and SV:
+        faq.append((f"Peut-on faire le plein 24h/24 {where} ?",
+                    f"Aucune station {where} ne déclare d'automate 24h/24 dans les données officielles."))
+    svc = {}
+    for i in idx:
+        for j in (S[i][10] if len(S[i]) > 10 else []):
+            if j < len(SV):
+                svc[SV[j]] = svc.get(SV[j], 0) + 1
+    if svc:
+        top = sorted(svc.items(), key=lambda x: -x[1])[:10]
+        out.append('<h2>Services disponibles</h2><ul class="chips">' +
+                   "".join(f"<li>{E(n)} <small>{c}</small></li>" for n, c in top) + "</ul>")
+    # tendance departement
+    if dep_series:
+        ser = dep_series[main_k]
+        sent = trend_sentence(ser, lab, f"dans le département {dep_name}")
+        if sent:
+            out.append(f'<h2>Tendance sur 4 mois dans le département</h2><p class="prose">{sent}</p>' +
+                       mini_chart(ser, hstart, label=f"Prix moyen du {lab} dans le département {dep_name} sur 4 mois"))
+            faq.append((f"Le prix du {lab} augmente-t-il dans le département {dep_name} ?", re.sub("<[^>]+>", "", sent)))
+    if faq:
+        out.append('<h2>Questions fréquentes</h2><div class="faq">' +
+                   "".join(f"<h3>{E(q)}</h3><p>{E(a)}</p>" for q, a in faq) + "</div>")
+    ld = {"@context": "https://schema.org", "@type": "FAQPage",
+          "mainEntity": [{"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": a}} for q, a in faq]} if faq else None
+    return "\n".join(out), ld
+
+
 # ------------------------------------------------------------------ construction
 def main():
     src, out = sys.argv[1], sys.argv[2]
@@ -188,6 +342,8 @@ def main():
     deps_geo = json.load(open(os.path.join(ROOT, "web", "data", "deps.json")))
     DEPN = {f["properties"]["c"]: f["properties"]["n"] for f in deps_geo["features"]}
     S = D["s"]
+    SV = D.get("sv", [])
+    DH, hstart = dept_history(src)
     upd = datetime.fromisoformat(D["u"])
     upd_txt = f"{fr_date(upd)} à {upd:%Hh%M}"
     today = upd.date()
@@ -254,6 +410,14 @@ def main():
         return (f'<span class="down">▼ {ct(d)} ct sous la moyenne nationale</span>' if d < 0
                 else f'<span class="up">▲ {ct(d)} ct au-dessus de la moyenne nationale</span>')
 
+    # --- enseignes
+    by_brand = {}
+    for i, s in enumerate(S):
+        if s[9] and s[9] not in ("Indépendant",):
+            by_brand.setdefault(s[9], []).append(i)
+    by_brand = {b: v for b, v in by_brand.items() if len(v) >= 15}
+    brand_path = {b: f"/enseigne/{slug(b)}/" for b in by_brand}
+
     # ------------------------------------------------ pages villes
     keys = list(by_city)
     for key in keys:
@@ -279,6 +443,7 @@ def main():
                 f"<b>{eur(bs[5][main_k])}</b> chez {E(bname)}. Comparez les prix des {len(idx)} "
                 f"station{'s' if len(idx) > 1 else ''}-service de la commune, à partir des prix officiels déclarés par les stations.")
         near_html = "".join(f'<li><a href="{url(city_path[o])}">{E(city_name[o])} ({o[0]})</a> <small>{dist:.0f} km</small></li>' for dist, o in near)
+        extra, faq_ld = extra_sections(idx, S, f"à {nm}", main_k, DH.get(st_key(cp)), hstart, DEPN.get(d, d), SV, brand_path)
         body = f"""<h1>Prix des carburants à {E(nm)} ({cp})</h1>
 <p class="lead">{lead}</p>
 <p class="upd">Relevé du {upd_txt} · <a class="btn" href="{url(f'/?cp={cp}')}">Voir sur la carte</a></p>
@@ -286,6 +451,7 @@ def main():
 <h2>Toutes les stations-service à {E(nm)}</h2>
 {price_table(idx, S, fk)}
 <p class="note">Le prix le plus bas de chaque carburant est surligné. Cliquez sur une station pour l'ouvrir sur la carte, avec l'évolution de ses prix.</p>
+{extra}
 {f'<h2>Communes voisines</h2><ul class="links">{near_html}</ul>' if near_html else ''}
 {f'<p><a href="{url(agg_path[city_parent[key]])}">Toutes les stations de {E(agg[city_parent[key]]["name"])} →</a></p>' if key in city_parent else ''}
 <p><a href="{url(dep_path[d])}">Prix des carburants dans le département {E(DEPN.get(d, d))} ({d}) →</a></p>"""
@@ -303,6 +469,8 @@ def main():
         for x in ld[0]["itemListElement"]:
             if not x["item"]["brand"]:
                 del x["item"]["brand"]
+        if faq_ld:
+            ld.append(faq_ld)
         write(out, city_path[key], page(city_path[key], title, desc, body,
               [("Accueil", "/"), (DEPN.get(d, d), dep_path[d])] +
               ([(agg[city_parent[key]]["name"], agg_path[city_parent[key]])] if key in city_parent else []) +
@@ -328,19 +496,21 @@ def main():
         lead = (f"Le {fr_date(today)}, le {FUELS[main_k][3]} le moins cher à {E(nm)} est affiché à <b>{eur(bs[5][main_k])}</b> "
                 f"chez {E(bs[8] or 'la station ' + bs[4])} ({bs[2]}). Comparez les prix des {len(idx)} stations-service de {E(nm)}, "
                 f"à partir des prix officiels déclarés par les stations.")
+        extra, faq_ld = extra_sections(idx, S, f"à {nm}", main_k, DH.get(st_key(cps[0][0])), hstart, DEPN.get(d, d), SV, brand_path)
         body = f"""<h1>Prix des carburants à {E(nm)}</h1>
 <p class="lead">{lead}</p>
 <p class="upd">Relevé du {upd_txt} · <a class="btn" href="{url(f'/?lat={centroid[cps[0]][0]:.4f}&lon={centroid[cps[0]][1]:.4f}&z=12')}">Voir sur la carte</a></p>
 <section class="cards">{cards}</section>
 <h2>Les stations-service de {E(nm)}, de la moins chère à la plus chère</h2>
 {price_table(idx, S, fk, show_city=True)}
+{extra}
 <h2>Par code postal</h2><ul class="links">{cplinks}</ul>
 <p><a href="{url(dep_path[d])}">Prix des carburants dans le département {E(DEPN.get(d, d))} ({d}) →</a></p>"""
         title = f"Prix essence et gazole à {nm} : stations les moins chères"
         desc = ", ".join(f"{FUELS[k][1]} dès {eur(min(S[i][5][k] for i in idx if S[i][5][k]))}" for k in fk[:3]) + \
                f" à {nm} le {fr_date(today)}. Comparez les {len(idx)} stations-service, prix mis à jour automatiquement."
         write(out, agg_path[ak], page(agg_path[ak], title, desc, body,
-              [("Accueil", "/"), (DEPN.get(d, d), dep_path[d]), (nm, agg_path[ak])], None, upd_txt))
+              [("Accueil", "/"), (DEPN.get(d, d), dep_path[d]), (nm, agg_path[ak])], [faq_ld] if faq_ld else None, upd_txt))
         urls.append((agg_path[ak], "0.7"))
 
     # ------------------------------------------------ pages departements
@@ -363,17 +533,19 @@ def main():
         a0 = dep_avg(d, 0)
         lead = (f"{len(idx)} stations-service dans le département {E(dn)} ({d}). "
                 + (f"Le gazole y coûte en moyenne <b>{eur(round(a0))}</b> le {fr_date(today)}, " + cmp_nat(a0, 0).replace('<span class="down">', '').replace('<span class="up">', '').replace('</span>', '').replace("▼ ", "soit ").replace("▲ ", "soit ") + "." if a0 else ""))
+        extra, faq_ld = extra_sections(idx, S, f"dans le département {dn}", 0, DH.get("20" if d in ("2A", "2B") else d), hstart, dn, SV, brand_path)
         body = f"""<h1>Prix des carburants : {E(dn)} ({d})</h1>
 <p class="lead">{lead}</p>
 <p class="upd">Relevé du {upd_txt}</p>
 <div class="tw"><table class="pt"><thead><tr><th>Carburant</th><th>Moyenne</th><th>Le moins cher</th><th>Moyenne France</th><th>Écart</th></tr></thead><tbody>{rows}</tbody></table></div>
 {tops}
+{extra}
 <h2>Prix par commune</h2><ul class="links cols">{clinks}</ul>"""
         title = f"Prix carburant {dn} ({d}) : gazole, SP95-E10, SP98 moins chers"
         desc = (f"Prix moyen du gazole dans le département {dn} : {eur(round(a0))} le {fr_date(today)}. " if a0 else "") + \
                f"Stations les moins chères et prix par commune, {len(idx)} stations comparées."
         write(out, dep_path[d], page(dep_path[d], title, desc, body,
-              [("Accueil", "/"), ("Départements", "/departements/"), (dn, dep_path[d])], None, upd_txt))
+              [("Accueil", "/"), ("Départements", "/departements/"), (dn, dep_path[d])], [faq_ld] if faq_ld else None, upd_txt))
         urls.append((dep_path[d], "0.7"))
 
     # ------------------------------------------------ index departements
@@ -423,6 +595,198 @@ def main():
                 "temporalCoverage": f"2017-01-01/{today.isoformat()}", "spatialCoverage": "France métropolitaine"}], upd_txt))
         urls.append((f"/{sl}/", "0.9"))
 
+    # ------------------------------------------------ enseignes
+    brows = []
+    for b, idx in by_brand.items():
+        avgs = {}
+        for k in range(6):
+            v = [S[i][5][k] for i in idx if S[i][5][k]]
+            if len(v) >= 5:
+                avgs[k] = sum(v) / len(v)
+        brows.append((b, idx, avgs))
+    brows.sort(key=lambda x: x[2].get(0, 9e9))
+    for rank, (b, idx, avgs) in enumerate(brows):
+        cards = "".join(f'<div class="card"><h3>{E(FUELS[k][1])}</h3><p class="big">{eur(round(a))}</p><p>prix moyen chez {E(b)}</p><p class="cmp">{cmp_nat(a, k)}</p></div>' for k, a in avgs.items())
+        tops = ""
+        for k in (0, 2, 3):
+            ids = sorted([i for i in idx if S[i][5][k] and S[i][6][k] <= 7], key=lambda i: S[i][5][k])
+            if ids:
+                tops += f"<h2>{E(FUELS[k][1])} : les 15 stations {E(b)} les moins chères</h2>" + price_table(ids, S, [k], show_city=True, limit=15)
+        dd = {}
+        for i in idx:
+            if S[i][5][0]:
+                dd.setdefault(dep_of(S[i][2]), []).append(S[i][5][0])
+        drows = sorted(((sum(v) / len(v), d, len(v)) for d, v in dd.items() if len(v) >= 3))
+        dtab = "".join(f'<tr><td><a href="{url(dep_path[d])}">{E(DEPN.get(d, d))} ({d})</a></td><td>{n}</td><td>{eur(round(a))}</td></tr>' for a, d, n in drows)
+        g = avgs.get(0)
+        lead = (f"{len(idx)} stations {E(b)} en France métropolitaine. " +
+                (f"Le {fr_date(today)}, le gazole y coûte en moyenne <b>{eur(round(g))}</b> le litre, "
+                 f"ce qui place {E(b)} au <b>{rank + 1}<sup>e</sup> rang</b> des {len(brows)} enseignes les moins chères pour le gazole." if g else ""))
+        body = f"""<h1>Prix des carburants chez {E(b)}</h1>
+<p class="lead">{lead}</p>
+<p class="upd">Relevé du {upd_txt} · <a class="btn" href="{url('/enseignes/')}">Comparer toutes les enseignes</a></p>
+<section class="cards">{cards}</section>
+{tops}
+{f'<h2>Prix moyen du gazole chez {E(b)} par département</h2><div class="tw"><table class="pt"><thead><tr><th>Département</th><th>Stations</th><th>Prix moyen</th></tr></thead><tbody>{dtab}</tbody></table></div>' if dtab else ''}"""
+        title = f"Prix carburant {b} aujourd'hui : gazole, SP95-E10, SP98"
+        desc = (f"Gazole à {eur(round(g))} en moyenne chez {b} le {fr_date(today)}. " if g else "") + \
+               f"Les stations {b} les moins chères et les prix par département, comparés aux autres enseignes."
+        write(out, brand_path[b], page(brand_path[b], title, desc, body,
+              [("Accueil", "/"), ("Enseignes", "/enseignes/"), (b, brand_path[b])], None, upd_txt))
+        urls.append((brand_path[b], "0.8"))
+    tr = ""
+    for rank, (b, idx, avgs) in enumerate(brows):
+        tr += (f'<tr><td>{rank + 1}</td><td><a href="{url(brand_path[b])}">{E(b)}</a></td><td>{len(idx)}</td>' +
+               "".join(f"<td>{eur(round(avgs[k])) if k in avgs else '—'}</td>" for k in (0, 2, 3)) + "</tr>")
+    cheap_b = brows[0][0] if brows else ""
+    cheap_txt = f"En ce moment, <b>{E(cheap_b)}</b> est l'enseigne la moins chère pour le gazole." if cheap_b else ""
+    body = f"""<h1>Quelle enseigne a le carburant le moins cher ?</h1>
+<p class="lead">Classement des enseignes de stations-service selon le prix moyen du gazole le {fr_date(today)}, calculé sur toutes leurs stations en France métropolitaine. {cheap_txt}</p>
+<p class="upd">Relevé du {upd_txt}</p>
+<div class="tw"><table class="pt"><thead><tr><th>Rang</th><th>Enseigne</th><th>Stations</th><th>Gazole</th><th>SP95-E10</th><th>SP98</th></tr></thead><tbody>{tr}</tbody></table></div>
+<p class="note">Enseignes de plus de 15 stations. Les noms et enseignes proviennent d'OpenStreetMap et sont connus pour environ 8 stations sur 10.</p>"""
+    write(out, "/enseignes/", page("/enseignes/", "Carburant le moins cher : classement des enseignes (Leclerc, Intermarché, Total…)",
+          f"Quelle enseigne vend le carburant le moins cher ? Prix moyen du gazole, du SP95-E10 et du SP98 chez Leclerc, Intermarché, Carrefour, TotalEnergies, Système U… le {fr_date(today)}.",
+          body, [("Accueil", "/"), ("Enseignes", "/enseignes/")], None, upd_txt))
+    urls.append(("/enseignes/", "0.9"))
+
+    # ------------------------------------------------ autoroute
+    A = [i for i, s in enumerate(S) if len(s) > 12 and s[12]]
+    if len(A) >= 20:
+        rows = ""
+        for k in range(6):
+            va = [S[i][5][k] for i in A if S[i][5][k]]
+            vr = [s[5][k] for s in S if s[5][k] and not (len(s) > 12 and s[12])]
+            if len(va) >= 5 and vr:
+                a1, a2 = sum(va) / len(va), sum(vr) / len(vr)
+                rows += f"<tr><td>{E(FUELS[k][1])}</td><td>{eur(round(a1))}</td><td>{eur(round(a2))}</td><td class=\"up\">+{ct(a1 - a2)} ct</td><td>+{fmt2((a1 - a2) * TANK / 1000)} €</td></tr>"
+        ids = sorted([i for i in A if S[i][5][0]], key=lambda i: S[i][5][0])
+        g_a = [S[i][5][0] for i in A if S[i][5][0]]
+        g_r = [s[5][0] for s in S if s[5][0] and not (len(s) > 12 and s[12])]
+        diff = (sum(g_a) / len(g_a) - sum(g_r) / len(g_r)) if g_a and g_r else 0
+        body = f"""<h1>Prix du carburant sur autoroute</h1>
+<p class="lead">Le {fr_date(today)}, le gazole coûte en moyenne <b>{ct(diff)} centimes de plus par litre</b> sur les aires d'autoroute qu'ailleurs, soit environ {str(round(diff * TANK / 1000, 2)).replace('.', ',')} € de plus pour un plein de {TANK} litres. Voici les prix des {len(A)} stations d'autoroute, de la moins chère à la plus chère.</p>
+<p class="upd">Relevé du {upd_txt}</p>
+<div class="tw"><table class="pt"><thead><tr><th>Carburant</th><th>Sur autoroute</th><th>Hors autoroute</th><th>Écart / litre</th><th>Écart / plein</th></tr></thead><tbody>{rows}</tbody></table></div>
+<h2>Conseil</h2><p class="prose">Sur un long trajet, faire le plein juste avant d'entrer sur l'autoroute ou à une sortie, dans une station de supermarché proche, revient presque toujours moins cher. Utilisez la <a href="{url('/')}">carte</a> pour repérer les stations proches des sorties.</p>
+<h2>Les stations d'autoroute, de la moins chère à la plus chère (gazole)</h2>
+{price_table(ids, S, [k for k in (0, 2, 3) if any(S[i][5][k] for i in A)], show_city=True)}"""
+        write(out, "/prix-carburant-autoroute/", page("/prix-carburant-autoroute/", "Prix de l'essence et du gazole sur autoroute : l'écart avec les autres stations",
+              f"Sur autoroute, le gazole coûte {ct(diff)} ct de plus par litre en moyenne le {fr_date(today)}. Prix de toutes les stations d'autoroute, de la moins chère à la plus chère.",
+              body, [("Accueil", "/"), ("Autoroute", "/prix-carburant-autoroute/")], None, upd_txt))
+        urls.append(("/prix-carburant-autoroute/", "0.9"))
+
+    # ------------------------------------------------ actualites hebdomadaires
+    h0 = date.fromisoformat(H["start"])
+    nH = len(hist["Gazole"])
+    last_day = h0 + timedelta(days=nH - 1)
+    week_end = last_day - timedelta(days=(last_day.weekday() + 1) % 7)  # dernier dimanche complet
+    weeks = []
+    for w in range(26):
+        e = week_end - timedelta(days=7 * w)
+        s0 = e - timedelta(days=6)
+        weeks.append((s0, e))
+
+    def wavg(key, s0, e):
+        a, b = (s0 - h0).days, (e - h0).days
+        v = [x for x in hist[key][max(a, 0):b + 1] if x]
+        return sum(v) / len(v) if v else None
+
+    def wlabel(s0, e):
+        return (f"du {s0.day} au {e.day} {MONTHS[e.month - 1]} {e.year}" if s0.month == e.month
+                else f"du {s0.day} {MONTHS[s0.month - 1]} au {e.day} {MONTHS[e.month - 1]} {e.year}")
+    news = []
+    for s0, e in weeks:
+        prev = (s0 - timedelta(days=7), e - timedelta(days=7))
+        ly = (s0 - timedelta(days=364), e - timedelta(days=364))
+        rows, head = "", ""
+        g_now, g_prev = wavg("Gazole", s0, e), wavg("Gazole", *prev)
+        if not g_now or not g_prev:
+            continue
+        for k, (key, lab, sl, full) in enumerate(FUELS):
+            a, b, c = wavg(key, s0, e), wavg(key, *prev), wavg(key, *ly)
+            if not a:
+                continue
+            d1 = f'<span class="{"up" if a > b else "down"}">{"▲ +" if a > b else "▼ −"}{ct(a - b)} ct</span>' if b else "—"
+            d2 = f'<span class="{"up" if a > c else "down"}">{"▲ +" if a > c else "▼ −"}{ct(a - c)} ct</span>' if c else "—"
+            rows += f'<tr><td><a href="{url("/" + sl + "/")}">{E(lab)}</a></td><td>{eur(round(a))}</td><td>{d1}</td><td>{d2}</td></tr>'
+        dg = g_now - g_prev
+        verb = "grimpe" if dg >= 20 else "augmente" if dg >= 5 else "augmente légèrement" if dg > 1 else "chute" if dg <= -20 else "baisse" if dg <= -5 else "recule légèrement" if dg < -1 else "reste stable"
+        headline = f"Le gazole {verb}" + (f" de {ct(dg)} centime{'s' if abs(dg) >= 15 else ''}" if abs(dg) > 1 else "") + f" : {eur(round(g_now))} en moyenne"
+        slug_w = f"/actualites/{e.isocalendar()[0]}-semaine-{e.isocalendar()[1]:02d}/"
+        a0, b0 = (s0 - h0).days, (e - h0).days
+        ser = hist["Gazole"][max(a0 - 49, 0):b0 + 1]
+        body = f"""<h1>Prix des carburants {wlabel(s0, e)}</h1>
+<p class="lead">{headline} sur la semaine {wlabel(s0, e)}, contre {eur(round(g_prev))} la semaine précédente. Voici l'évolution du prix moyen de chaque carburant en France métropolitaine, calculée sur toutes les stations-service.</p>
+<div class="tw"><table class="pt"><thead><tr><th>Carburant</th><th>Prix moyen de la semaine</th><th>vs semaine précédente</th><th>vs il y a un an</th></tr></thead><tbody>{rows}</tbody></table></div>
+<h2>Le gazole sur les 8 dernières semaines</h2>
+{mini_chart(ser, s0 - timedelta(days=49) if a0 >= 49 else h0, label="Prix moyen du gazole sur 8 semaines")}
+<p class="prose">Pour trouver la station la moins chère près de chez vous aujourd'hui, consultez la <a href="{url('/')}">carte des prix</a> ou le <a href="{url('/enseignes/')}">classement des enseignes</a>.</p>"""
+        write(out, slug_w, page(slug_w, f"Prix des carburants {wlabel(s0, e)} : {headline.lower()}",
+              f"{headline} sur la semaine {wlabel(s0, e)}. Évolution du prix du gazole, du SP95-E10, du SP98, de l'E85 et du GPL en France.",
+              body, [("Accueil", "/"), ("Actualités", "/actualites/"), (f"Semaine {wlabel(s0, e)}", slug_w)],
+              [{"@context": "https://schema.org", "@type": "NewsArticle", "headline": f"Prix des carburants {wlabel(s0, e)}",
+                "datePublished": (e + timedelta(days=1)).isoformat(), "dateModified": (e + timedelta(days=1)).isoformat(),
+                "author": {"@type": "Organization", "name": SITE_NAME}, "publisher": {"@type": "Organization", "name": SITE_NAME},
+                "image": SITE_URL + "/assets/og.png", "mainEntityOfPage": SITE_URL + slug_w}]))
+        urls.append((slug_w, "0.6"))
+        news.append((s0, e, headline, slug_w))
+    items = "".join(f'<li><a href="{url(p_)}"><b>Semaine {wlabel(s0, e)}</b></a><br><span>{E(h)}</span></li>' for s0, e, h, p_ in news)
+    body = f"""<h1>Actualités des prix des carburants</h1>
+<p class="lead">Chaque semaine, le bilan de l'évolution des prix du gazole et de l'essence en France, calculé sur toutes les stations-service à partir des prix officiels.</p>
+<ul class="news">{items}</ul>"""
+    write(out, "/actualites/", page("/actualites/", "Actualités des prix des carburants : le bilan de chaque semaine",
+          "Évolution des prix du gazole, du SP95-E10 et du SP98 semaine après semaine en France : hausses, baisses et comparaison avec l'an dernier.",
+          body, [("Accueil", "/"), ("Actualités", "/actualites/")], None, upd_txt))
+    urls.append(("/actualites/", "0.8"))
+
+    # ------------------------------------------------ widget pour les sites partenaires
+    body = f"""<h1>Widget des prix à intégrer sur votre site</h1>
+<p class="lead">Mairie, club, blog local, commerce : affichez gratuitement les stations les moins chères de votre commune sur votre site. Les prix se mettent à jour tout seuls.</p>
+<div class="wg">
+  <label for="wcp">Code postal</label>
+  <div class="wrow"><input id="wcp" inputmode="numeric" maxlength="5" value="75015"><select id="wfu" aria-label="Carburant">{''.join(f'<option value="{k}">{E(FUELS[k][1])}</option>' for k in range(6))}</select></div>
+  <iframe id="wprev" title="Aperçu du widget" src="{url('/widget/embed.html?cp=75015&amp;c=0')}" width="100%" height="330" loading="lazy" style="border:1px solid var(--line);border-radius:12px;max-width:420px;display:block;margin-top:14px"></iframe>
+  <label for="wcode" style="margin-top:16px;display:block">Code à coller sur votre site</label>
+  <textarea id="wcode" rows="5" readonly></textarea>
+  <button type="button" id="wcopy" class="btn">Copier le code</button>
+</div>
+<script>
+(function(){{var cp=document.getElementById('wcp'),fu=document.getElementById('wfu'),pv=document.getElementById('wprev'),code=document.getElementById('wcode');
+function up(){{var c=(cp.value||'').replace(/\\D/g,'').slice(0,5);var src='{SITE_URL}/widget/embed.html?cp='+c+'&c='+fu.value;
+if(c.length===5)pv.src=src;
+code.value='<iframe src="'+src+'" width="100%" height="330" style="border:0;max-width:420px" loading="lazy" title="Prix des carburants"></iframe>\\n<p style="font:12px sans-serif">Prix des carburants : <a href="{SITE_URL}/">Prix à la Pompe</a></p>';}}
+cp.addEventListener('input',up);fu.addEventListener('change',up);up();
+document.getElementById('wcopy').onclick=function(){{code.select();(navigator.clipboard?navigator.clipboard.writeText(code.value):Promise.reject()).then(function(){{document.getElementById('wcopy').textContent='Code copié'}},function(){{document.execCommand&&document.execCommand('copy')}})}};}})();
+</script>"""
+    write(out, "/widget/", page("/widget/", "Widget gratuit des prix des carburants pour votre site",
+          "Affichez gratuitement sur votre site les stations-service les moins chères de votre commune, avec des prix mis à jour automatiquement.",
+          body, [("Accueil", "/"), ("Widget", "/widget/")], None, upd_txt))
+    urls.append(("/widget/", "0.4"))
+    fuels_js = json.dumps([f[1] for f in FUELS], ensure_ascii=False)
+    embed = f"""<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Prix des carburants</title>
+<style>body{{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;color:#161B2E;background:#fff}}
+.h{{height:4px;background:linear-gradient(90deg,#1F3A93 0 33.3%,#fff 33.3% 66.6%,#D42A2F 66.6%)}}
+.t{{padding:10px 12px 6px;font-weight:700;color:#1F3A93}}.t small{{display:block;font-weight:400;color:#5C6480}}
+ol{{list-style:none;margin:0;padding:0 12px}}li{{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid #E8ECF4}}
+li b{{font-weight:600}}li span{{display:block;font-size:12px;color:#5C6480}}li i{{font:600 15px ui-monospace,Menlo,monospace;font-style:normal;color:#1E8C6E;white-space:nowrap}}
+a.f{{display:block;padding:8px 12px;font-size:12px;color:#1F3A93;text-decoration:none;border-top:1px solid #E8ECF4}}</style></head>
+<body><div class="h"></div><div class="t" id="t">Chargement…</div><ol id="l"></ol><a class="f" id="f" href="{SITE_URL}/" target="_blank" rel="noopener">Tous les prix sur Prix à la Pompe →</a>
+<script>
+(function(){{var F={fuels_js};var q=new URLSearchParams(location.search),cp=(q.get('cp')||'').slice(0,5),k=Math.min(5,Math.max(0,+q.get('c')||0));
+function km(a,b,c,d){{var r=Math.PI/180,x=Math.pow(Math.sin((c-a)*r/2),2)+Math.cos(a*r)*Math.cos(c*r)*Math.pow(Math.sin((d-b)*r/2),2);return 12742*Math.asin(Math.sqrt(x))}}
+function e(s){{return String(s).replace(/[&<>"]/g,function(c){{return{{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[c]}})}}
+fetch('../data/stations.json').then(function(r){{return r.json()}}).then(function(D){{var S=D.s,here=S.filter(function(s){{return s[2]===cp}});
+if(!here.length){{document.getElementById('t').textContent='Code postal introuvable';return}}
+var la=here.reduce(function(a,s){{return a+s[0]}},0)/here.length,lo=here.reduce(function(a,s){{return a+s[1]}},0)/here.length;
+var list=S.filter(function(s){{return s[5][k]&&km(la,lo,s[0],s[1])<=8}}).sort(function(a,b){{return a[5][k]-b[5][k]}}).slice(0,6);
+document.getElementById('t').innerHTML=e(F[k])+' le moins cher près de '+e(here[0][3])+'<small>Prix officiels · à 8 km maximum</small>';
+document.getElementById('l').innerHTML=list.map(function(s){{return '<li><div><b>'+e(s[8]||('Station '+s[3]))+'</b><span>'+e(s[4])+', '+e(s[3])+'</span></div><i>'+(s[5][k]/1000).toFixed(3).replace('.',',')+' €</i></li>'}}).join('');
+document.getElementById('f').href='{SITE_URL}/?cp='+cp;}}).catch(function(){{document.getElementById('t').textContent='Prix indisponibles'}});}})();
+</script></body></html>"""
+    write(out, "/widget/embed.html", embed, raw=True)
+
     # ------------------------------------------------ a propos
     body = f"""<h1>Sources et méthode</h1>
 <div class="prose">
@@ -463,7 +827,7 @@ def main():
     <div><h3>Prix par ville</h3><ul class="seo-list">{big_links}</ul></div>
     <div><h3>Prix par département</h3><ul class="seo-list dense">{dep_links}</ul></div>
   </div>
-  <p class="seo-more"><a href="{url('/departements/')}">Tableau de tous les départements</a> · <a href="{url('/a-propos/')}">Sources et méthode</a></p>
+  <p class="seo-more"><a href="{url('/enseignes/')}">Quelle enseigne est la moins chère ?</a> · <a href="{url('/prix-carburant-autoroute/')}">Prix sur autoroute</a> · <a href="{url('/actualites/')}">Actualités de la semaine</a> · <a href="{url('/departements/')}">Tous les départements</a> · <a href="{url('/widget/')}">Widget pour votre site</a> · <a href="{url('/a-propos/')}">Sources et méthode</a></p>
 </section>""".replace(f"{len(S):,}", f"{len(S):,}".replace(",", " "))
     seo_css = """<style>
 .seo .fuel-links{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
@@ -490,6 +854,7 @@ def main():
          "applicationCategory": "TravelApplication", "operatingSystem": "Web", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"},
          "description": home_desc}])
     head = head[:head.index("<body>")].replace(f'<link rel="stylesheet" href="{url("/assets/site.css")}">\n', "")
+    head = head.replace("</head>", f'<link rel="preload" href="{url("/data/stations.json")}" as="fetch" crossorigin>\n</head>')
     home = head + "<body>\n" + tpl.replace("<!--SEO-->", seo) + seo_css + "\n</body>\n</html>\n"
     write(out, "/", home)
     urls.insert(0, ("/", "1.0"))
@@ -504,6 +869,14 @@ def main():
     open(os.path.join(out, "sitemap.xml"), "w").write("\n".join(sm))
     open(os.path.join(out, "robots.txt"), "w").write(f"User-agent: *\nAllow: /\n\nSitemap: {SITE_URL}/sitemap.xml\n")
     open(os.path.join(out, ".nojekyll"), "w").write("")
+    open(os.path.join(out, "llms.txt"), "w").write(
+        f"# {SITE_NAME}\n\n> Prix officiels de l'essence et du gazole dans les {len(S)} stations-service de France métropolitaine, "
+        f"actualisés toutes les 30 minutes (source : prix-carburants.gouv.fr).\n\n"
+        f"- [Carte des stations]({SITE_URL}/)\n- [Prix du gazole aujourd'hui]({SITE_URL}/prix-gazole/)\n"
+        f"- [Prix du SP95-E10]({SITE_URL}/prix-sp95-e10/)\n- [Prix du SP98]({SITE_URL}/prix-sp98/)\n"
+        f"- [Classement des enseignes]({SITE_URL}/enseignes/)\n- [Prix sur autoroute]({SITE_URL}/prix-carburant-autoroute/)\n"
+        f"- [Prix par département]({SITE_URL}/departements/)\n- [Actualités hebdomadaires]({SITE_URL}/actualites/)\n"
+        f"- [Sources et méthode]({SITE_URL}/a-propos/)\n")
     print(f"OK pages={len(urls)} villes={len(by_city)} departements={len(by_dep)} site={SITE_URL}")
 
 

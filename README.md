@@ -10,7 +10,7 @@ Tout tourne gratuitement sur GitHub :
 
 - `.github/workflows/update.yml` s'exécute toutes les 30 minutes.
 - `scripts/build_data.py` lit le flux officiel [prix-carburants.gouv.fr](https://www.prix-carburants.gouv.fr/rubrique/opendata/) (mis à jour toutes les 10 min). L'historique depuis 2017 vient de [prix-essence-nord](https://github.com/MikeColombet/prix-essence-nord), et les noms des stations de [hass-prixcarburant](https://github.com/Aohzan/hass-prixcarburant) (OpenStreetMap).
-- `scripts/build_site.py` génère la carte (`index.html`), environ 5 900 pages (villes, départements, carburants), `sitemap.xml` et `robots.txt`, puis le workflow publie le tout sur GitHub Pages.
+- `scripts/build_site.py` génère la carte (`index.html`) et environ 6 000 pages : villes, départements, carburants, enseignes, autoroute, bilans hebdomadaires, widget à intégrer. Il produit aussi `sitemap.xml`, `robots.txt` et `llms.txt`, puis le workflow publie le tout sur GitHub Pages.
 
 ## Référencement
 

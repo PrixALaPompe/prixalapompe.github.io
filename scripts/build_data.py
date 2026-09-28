@@ -93,6 +93,7 @@ def parse_official(xml_bytes):
             "prices": prices,
             "services": [(s.text or "").strip() for s in pdv.findall("services/service") if (s.text or "").strip()],
             "h24": 1 if (h is not None and h.get("automate-24-24") == "1") else 0,
+            "pop": 1 if (pdv.get("pop") or "").upper() == "A" else 0,
         }
     return out
 
@@ -127,7 +128,7 @@ def build_stations(repo, names, official=None):
                 "ville": s["ville"] or "", "adresse": s["adresse"] or "",
                 "prices": {k: (float(v["prix_eur"]), v["maj_officielle"].replace("T", " ")[:19])
                            for k, v in s["prices"].items() if k in FI},
-                "services": [], "h24": 0}
+                "services": [], "h24": 0, "pop": 0}
     for sid, o in (official or {}).items():
         m = merged.get(sid)
         if not m:
@@ -136,7 +137,7 @@ def build_stations(repo, names, official=None):
         for k, (val, ts) in o["prices"].items():
             if k not in m["prices"] or ts >= m["prices"][k][1]:
                 m["prices"][k] = (val, ts)
-        m["services"], m["h24"] = o["services"], o["h24"]
+        m["services"], m["h24"], m["pop"] = o["services"], o["h24"], o["pop"]
         m["lat"], m["lon"] = o["lat"], o["lon"]
     svc_index, svc_names = {}, []
     rows, newest = [], ""
@@ -167,7 +168,7 @@ def build_stations(repo, names, official=None):
         nm = names.get(sid, {})
         rows.append([round(s["lat"], 4), round(s["lon"], 4), s["cp"],
                      " ".join(s["ville"].split()).title(), adr, p, d, sid,
-                     (nm.get("name") or "").strip(), brand_family(nm.get("brand")), sv, s["h24"]])
+                     (nm.get("name") or "").strip(), brand_family(nm.get("brand")), sv, s["h24"], s.get("pop", 0)])
     rows.sort(key=lambda r: r[2])
     return rows, newest, now, svc_names, mirror_newest
 
