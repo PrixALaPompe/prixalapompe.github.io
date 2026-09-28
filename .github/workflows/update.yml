@@ -55,7 +55,7 @@ jobs:
       - name: Site et pages de référencement
         env:
           SITE_URL: ${{ steps.pages.outputs.base_url }}
-          GOOGLE_SITE_VERIFICATION: ${{ vars.GOOGLE_SITE_VERIFICATION }}
+          GOOGLE_SITE_VERIFICATION: _Tfwoch2bJqQdfS329py7_hf-EV0w_0r5KuwQKsapx4
           BING_SITE_VERIFICATION: ${{ vars.BING_SITE_VERIFICATION }}
         run: python scripts/build_site.py _build _site
 
