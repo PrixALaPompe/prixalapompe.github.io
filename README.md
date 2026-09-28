@@ -2,7 +2,7 @@
 
 Carte des prix de l'essence et du gazole dans toutes les stations-service de France métropolitaine, avec l'évolution des prix depuis 2017 et une page par ville, département et carburant.
 
-**Site :** https://ghngaetan-dotcom.github.io/prix-a-la-pompe/
+**Site :** https://prixalapompe.github.io/
 
 ## Fonctionnement
 
