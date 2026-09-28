@@ -263,7 +263,8 @@ def extra_sections(idx, S, where, main_k, dep_series, hstart, dep_name, SV, bran
     out, faq = [], []
     lab = FUELS[main_k][3]
     vals = sorted(S[i][5][main_k] for i in idx if S[i][5][main_k])
-    cheapest = min((i for i in idx if S[i][5][main_k]), key=lambda i: S[i][5][main_k], default=None)
+    fresh = [i for i in idx if S[i][5][main_k] and S[i][6][main_k] <= 7] or [i for i in idx if S[i][5][main_k]]
+    cheapest = min(fresh, key=lambda i: S[i][5][main_k], default=None)
     if vals:
         avg = sum(vals) / len(vals)
         txt = (f"Avec un prix moyen de {eur(round(avg))}, un plein de {TANK} litres de {lab} coûte environ "
@@ -428,7 +429,7 @@ def main():
         fk = [k for k in range(6) if any(S[i][5][k] for i in idx)]
         main_k = 0 if 0 in fk else fk[0]
         idx.sort(key=lambda i: (S[i][5][main_k] or 9e9))
-        best = idx[0]
+        best = next((i for i in idx if S[i][5][main_k] and S[i][6][main_k] <= 7), idx[0])
         lat, lon = centroid[key]
         near = sorted((km(lat, lon, *centroid[o]), o) for o in keys if o != key and abs(centroid[o][0] - lat) < .3 and abs(centroid[o][1] - lon) < .45)[:10]
         cards = ""
@@ -484,7 +485,7 @@ def main():
         fk = [k for k in range(6) if any(S[i][5][k] for i in idx)]
         main_k = 0 if 0 in fk else fk[0]
         idx.sort(key=lambda i: (S[i][5][main_k] or 9e9))
-        bs = S[idx[0]]
+        bs = S[next((i for i in idx if S[i][5][main_k] and S[i][6][main_k] <= 7), idx[0])]
         cards = ""
         for k in fk:
             vals = [S[i][5][k] for i in idx if S[i][5][k]]
