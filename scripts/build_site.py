@@ -137,6 +137,7 @@ def page(path, title, desc, body, crumbs=None, jsonld=None, updated=None, share=
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800;900&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <link rel="stylesheet" href="{url('/assets/site.css')}">
 {verif}
+<script data-goatcounter="https://prixalapompe.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 {''.join('<script type="application/ld+json">' + json.dumps(x, ensure_ascii=False) + '</script>' for x in ld)}
 </head>
 <body>
