@@ -158,6 +158,13 @@ def page(path, title, desc, body, crumbs=None, jsonld=None, updated=None, share=
 """
 
 
+STATION_PATH = {}
+
+
+def st_link(s):
+    return url(STATION_PATH.get(s[7], "/?st=" + s[7]))
+
+
 def price_table(rows_idx, S, fuels_k, dep_names=None, show_city=False, limit=None):
     head = "<th>Station</th>" + ("<th>Commune</th>" if show_city else "") + \
            "".join(f"<th>{E(FUELS[k][1])}</th>" for k in fuels_k) + "<th>Mise à jour</th>"
@@ -174,7 +181,7 @@ def price_table(rows_idx, S, fuels_k, dep_names=None, show_city=False, limit=Non
             cells += f"<td{cls}>{eur(p) if p else '—'}</td>"
         ages = [s[6][k] for k in fuels_k if s[5][k]]
         city = f'<td>{E(s[3])} <small>{E(s[2])}</small></td>' if show_city else ""
-        out.append(f'<tr><td><a href="{url("/?st=" + s[7])}">{E(nm)}</a>{brand}<small>{E(s[4])}</small></td>{city}{cells}'
+        out.append(f'<tr><td><a href="{st_link(s)}">{E(nm)}</a>{brand}<small>{E(s[4])}</small></td>{city}{cells}'
                    f'<td class="age">{ago(min(ages)) if ages else "—"}</td></tr>')
     return f'<div class="tw"><table class="pt"><thead><tr>{head}</tr></thead><tbody>{"".join(out)}</tbody></table></div>'
 
@@ -219,6 +226,16 @@ def dept_history(src, days=120):
                         sums[k][dd] += p; cnts[k][dd] += 1
         res[os.path.basename(fp)[:-5]] = [[round(s / c) if c >= 3 else None for s, c in zip(sums[k], cnts[k])] for k in range(6)]
     return res, (date.fromisoformat(start) if start else None)
+
+
+def series_from_points(pts, days=120):
+    out, cur, j = [], None, 0
+    last_change = -999
+    for dd in range(days + 1):
+        while j < len(pts) and pts[j][0] <= dd:
+            cur, last_change = pts[j][1], pts[j][0]; j += 1
+        out.append(cur if cur is not None and dd - last_change <= 30 else None)
+    return out
 
 
 def st_key(cp):
@@ -419,6 +436,11 @@ def main():
             by_brand.setdefault(s[9], []).append(i)
     by_brand = {b: v for b, v in by_brand.items() if len(v) >= 15}
     brand_path = {b: f"/enseigne/{slug(b)}/" for b in by_brand}
+    used = set()
+    for s in S:
+        base = slug((s[8] or "station") + "-" + s[3])[:60].strip("-")
+        pth = f"/station/{base}-{s[7]}/"
+        STATION_PATH[s[7]] = pth
 
     # ------------------------------------------------ pages villes
     keys = list(by_city)
@@ -788,6 +810,183 @@ document.getElementById('l').innerHTML=list.map(function(s){{return '<li><div><b
 document.getElementById('f').href='{SITE_URL}/?cp='+cp;}}).catch(function(){{document.getElementById('t').textContent='Prix indisponibles'}});}})();
 </script></body></html>"""
     write(out, "/widget/embed.html", embed, raw=True)
+
+    # ------------------------------------------------ pages stations
+    # grille pour trouver vite les stations voisines
+    grid = {}
+    for i, s in enumerate(S):
+        grid.setdefault((int(s[0] * 10), int(s[1] * 10)), []).append(i)
+
+    def neighbours(i, radius=10):
+        s = S[i]; gx, gy = int(s[0] * 10), int(s[1] * 10); res = []
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for j in grid.get((gx + dx, gy + dy), []):
+                    if j != i:
+                        dist = km(s[0], s[1], S[j][0], S[j][1])
+                        if dist <= radius:
+                            res.append((dist, j))
+        return sorted(res)
+
+    st_hist_cache = {}
+
+    def st_hist(cp):
+        key = st_key(cp)
+        if key not in st_hist_cache:
+            fp = os.path.join(src, "data", "st", key + ".json")
+            st_hist_cache.clear()
+            st_hist_cache[key] = json.load(open(fp)) if os.path.exists(fp) else {"s": {}, "start": None}
+        return st_hist_cache[key]
+
+    order = sorted(range(len(S)), key=lambda i: st_key(S[i][2]))
+    for i in order:
+        s = S[i]
+        pth = STATION_PATH[s[7]]
+        nm = s[8] or f"Station-service de {s[3]}"
+        d = dep_of(s[2])
+        city_key = (s[2], slug(s[3]))
+        fk = [k for k in range(6) if s[5][k]]
+        main_k = 0 if 0 in fk else fk[0]
+        cidx = by_city.get(city_key, [i])
+        cards = ""
+        for k in fk:
+            cv = [S[j][5][k] for j in cidx if S[j][5][k]]
+            ca = sum(cv) / len(cv) if cv else None
+            da = dep_avg(d, k)
+            cmp_txt = ""
+            if da:
+                dlt = s[5][k] - da
+                cmp_txt = (f'<span class="down">▼ {ct(dlt)} ct sous la moyenne du département</span>' if dlt < 0
+                           else f'<span class="up">▲ {ct(dlt)} ct au-dessus de la moyenne du département</span>')
+            cards += (f'<div class="card"><h3>{E(FUELS[k][1])}</h3><p class="big">{eur(s[5][k])}</p>'
+                      f'<p>mis à jour {ago(s[6][k])}</p><p class="cmp">{cmp_txt}</p></div>')
+        # historique
+        H = st_hist(s[2])
+        hs = H["s"].get(s[7], {})
+        hstart_st = date.fromisoformat(H["start"]) if H.get("start") else None
+        charts = ""
+        for k in fk[:3]:
+            pts = hs.get(str(k))
+            if pts and len(pts) >= 2:
+                ser = series_from_points(pts)
+                sent = trend_sentence(ser, FUELS[k][3], "dans cette station")
+                ch = mini_chart(ser, hstart_st, label=f"Prix du {FUELS[k][3]} dans cette station sur 4 mois")
+                if ch:
+                    charts += f"<h3>{E(FUELS[k][1])}</h3><p class=\"prose\">{sent}</p>{ch}"
+        # voisines
+        nb = [(dist, j) for dist, j in neighbours(i) if S[j][5][main_k]][:8]
+        cheaper = [(dist, j) for dist, j in nb if S[j][5][main_k] < s[5][main_k]]
+        nb_rows = "".join(
+            f'<tr><td><a href="{st_link(S[j])}">{E(S[j][8] or "Station " + S[j][3])}</a><small>{E(S[j][4])}, {E(S[j][3])}</small></td>'
+            f'<td>{str(round(dist, 1)).replace(".", ",")} km</td><td class="{"best" if S[j][5][main_k] < s[5][main_k] else ""}">{eur(S[j][5][main_k])}</td></tr>'
+            for dist, j in nb)
+        verdict = ""
+        if nb:
+            if cheaper:
+                dist, j = cheaper[0]
+                gain = (s[5][main_k] - S[j][5][main_k]) * TANK / 1000
+                verdict = (f"{len(cheaper)} station{'s' if len(cheaper) > 1 else ''} à moins de 10 km {'sont' if len(cheaper) > 1 else 'est'} moins chère{'s' if len(cheaper) > 1 else ''} pour le {FUELS[main_k][3]}. "
+                           f"La plus proche, {E(S[j][8] or 'la station de ' + S[j][3])} à {str(round(dist, 1)).replace('.', ',')} km, permet d'économiser {fmt2(gain)} € sur un plein de {TANK} litres.")
+            else:
+                verdict = f"C'est la station la moins chère pour le {FUELS[main_k][3]} dans un rayon de 10 km."
+        svc = [SV[j] for j in (s[10] if len(s) > 10 else []) if j < len(SV)]
+        h24 = len(s) > 11 and s[11]
+        brand_html = (f'<a href="{url(brand_path[s[9]])}">{E(s[9])}</a>' if s[9] in brand_path else E(s[9])) if s[9] else ""
+        city_link = city_path.get(city_key)
+        body = f"""<h1>{E(nm)}</h1>
+<p class="lead">{E(s[4])}{', ' if s[4] else ''}{E(s[2])} {E(s[3])}{(' · ' + brand_html) if brand_html else ''}{' · <b>automate 24h/24</b>' if h24 else ''}</p>
+<p class="upd">Relevé du {upd_txt} · <a class="btn" href="{url('/?st=' + s[7])}">Voir sur la carte</a> · <a href="https://www.google.com/maps/dir/?api=1&amp;destination={s[0]},{s[1]}" rel="noopener" target="_blank">Itinéraire</a></p>
+<section class="cards">{cards}</section>
+{f'<h2>Moins cher à côté ?</h2><p class="prose">{verdict}</p>' if verdict else ''}
+{f'<h2>Stations à proximité ({E(FUELS[main_k][1])})</h2><div class="tw"><table class="pt"><thead><tr><th>Station</th><th>Distance</th><th>{E(FUELS[main_k][1])}</th></tr></thead><tbody>{nb_rows}</tbody></table></div>' if nb_rows else ''}
+{f'<h2>Évolution des prix sur 4 mois</h2>{charts}' if charts else ''}
+{('<h2>Services</h2><ul class="chips">' + ''.join(f'<li>{E(x)}</li>' for x in svc) + '</ul>') if svc else ''}
+<p>{f'<a href="{url(city_link)}">Toutes les stations de {E(s[3])} ({E(s[2])}) →</a> · ' if city_link else ''}<a href="{url(dep_path[d])}">Prix dans le département {E(DEPN.get(d, d))} →</a></p>"""
+        prices_txt = ", ".join(f"{FUELS[k][1]} {eur(s[5][k])}" for k in fk[:3])
+        title = f"{nm} à {s[3]} : prix {', '.join(FUELS[k][1] for k in fk[:3])} aujourd'hui"
+        desc = f"{prices_txt} à {nm}, {s[4]} {s[2]} {s[3]} (relevé du {fr_date(today)}). Historique des prix et stations moins chères à proximité."
+        ld = {"@context": "https://schema.org", "@type": "GasStation", "name": nm, "url": SITE_URL + pth,
+              "address": {"@type": "PostalAddress", "streetAddress": s[4], "postalCode": s[2], "addressLocality": s[3], "addressCountry": "FR"},
+              "geo": {"@type": "GeoCoordinates", "latitude": s[0], "longitude": s[1]}}
+        if s[9]:
+            ld["brand"] = {"@type": "Brand", "name": s[9]}
+        if h24:
+            ld["openingHoursSpecification"] = {"@type": "OpeningHoursSpecification", "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], "opens": "00:00", "closes": "23:59"}
+        if svc:
+            ld["amenityFeature"] = [{"@type": "LocationFeatureSpecification", "name": x, "value": True} for x in svc]
+        crumbs = [("Accueil", "/"), (DEPN.get(d, d), dep_path[d])] + ([(s[3], city_link)] if city_link else []) + [(nm, pth)]
+        write(out, pth, page(pth, title, desc, body, crumbs, [ld], upd_txt))
+        urls.append((pth, "0.5"))
+
+    # ------------------------------------------------ carburant x departement
+    fuel_dep_path = {}
+    for k, (key, lab, sl, full) in enumerate(FUELS):
+        for d, idx in by_dep.items():
+            ids = [i for i in idx if S[i][5][k]]
+            if len(ids) < 5:
+                continue
+            dn = DEPN.get(d, d)
+            pth = f"/{sl}/{slug(dn)}-{d.lower()}/"
+            fuel_dep_path[(k, d)] = pth
+    for (k, d), pth in fuel_dep_path.items():
+        key, lab, sl, full = FUELS[k]
+        dn = DEPN.get(d, d)
+        ids = sorted([i for i in by_dep[d] if S[i][5][k]], key=lambda i: S[i][5][k])
+        fresh = [i for i in ids if S[i][6][k] <= 7] or ids
+        a = dep_avg(d, k)
+        best = fresh[0]
+        ccity = {}
+        for i in ids:
+            ccity.setdefault((S[i][2], slug(S[i][3])), []).append(S[i][5][k])
+        crow = sorted(((sum(v) / len(v), c, len(v)) for c, v in ccity.items()), key=lambda x: x[0])
+        ctab = "".join(f'<tr><td><a href="{url(city_path[c])}">{E(city_name[c])}</a> <small>{c[0]}</small></td><td>{n}</td><td>{eur(round(av))}</td></tr>' for av, c, n in crow if c in city_path)
+        ser = DH.get("20" if d in ("2A", "2B") else d)
+        trend = ""
+        if ser:
+            sent = trend_sentence(ser[k], full, f"dans le département {dn}")
+            if sent:
+                trend = f"<h2>Tendance sur 4 mois</h2><p class=\"prose\">{sent}</p>" + mini_chart(ser[k], hstart, label=f"Prix moyen du {full} dans le département {dn}")
+        others = " · ".join(f'<a href="{url(fuel_dep_path[(k2, d)])}">{E(FUELS[k2][1])}</a>' for k2 in range(6) if k2 != k and (k2, d) in fuel_dep_path)
+        body = f"""<h1>Prix du {E(full)} : {E(dn)} ({d})</h1>
+<p class="lead">Le {fr_date(today)}, le {E(full)} coûte en moyenne <b>{eur(round(a)) if a else '—'}</b> dans le département {E(dn)}, {cmp_nat(a, k).replace('<span class="down">', '').replace('<span class="up">', '').replace('</span>', '').replace('▼ ', 'soit ').replace('▲ ', 'soit ') if a else ''}. Le moins cher est à <b>{eur(S[best][5][k])}</b> chez {E(S[best][8] or 'la station de ' + S[best][3])} ({E(S[best][3])}).</p>
+<p class="upd">Relevé du {upd_txt} · <a class="btn" href="{url('/?carburant=' + key)}">Voir la carte</a></p>
+<h2>Les 20 stations les moins chères</h2>
+{price_table(fresh, S, [k], show_city=True, limit=20)}
+{trend}
+<h2>Prix moyen du {E(full)} par commune</h2>
+<div class="tw"><table class="pt"><thead><tr><th>Commune</th><th>Stations</th><th>Prix moyen</th></tr></thead><tbody>{ctab}</tbody></table></div>
+<p>Autres carburants dans le département : {others}</p>
+<p><a href="{url('/' + sl + '/')}">Prix du {E(full)} dans toute la France →</a> · <a href="{url(dep_path[d])}">Tous les carburants dans le département {E(dn)} →</a></p>"""
+        title = f"Prix du {lab} {dn} ({d}) aujourd'hui : stations les moins chères"
+        desc = f"{lab} à {eur(round(a))} en moyenne dans le département {dn} le {fr_date(today)}, dès {eur(S[best][5][k])}. Les 20 stations les moins chères et le prix par commune." if a else f"Prix du {lab} dans le département {dn}."
+        write(out, pth, page(pth, title, desc, body, [("Accueil", "/"), (f"Prix du {lab}", f"/{sl}/"), (dn, pth)], None, upd_txt))
+        urls.append((pth, "0.7"))
+
+    # ------------------------------------------------ carburant x grandes villes
+    big_places = [(v["name"], [i for kk in v["keys"] for i in by_city[kk]], agg_path[ak]) for ak, v in agg.items()]
+    big_places += [(city_name[c], idx, city_path[c]) for c, idx in by_city.items() if c not in city_parent and len(idx) >= 4]
+    big_places = sorted(big_places, key=lambda x: -len(x[1]))[:250]
+    for nm, idx, ppath in big_places:
+        for k, (key, lab, sl, full) in enumerate(FUELS):
+            ids = sorted([i for i in idx if S[i][5][k]], key=lambda i: S[i][5][k])
+            if len(ids) < 3 or k in (4, 5) and len(ids) < 3:
+                continue
+            pth = f"{ppath.rstrip('/')}/{sl}/"
+            fresh = [i for i in ids if S[i][6][k] <= 7] or ids
+            v = [S[i][5][k] for i in ids]
+            a = sum(v) / len(v)
+            gain = (max(v) - min(v)) * TANK / 1000
+            d = dep_of(S[ids[0]][2])
+            body = f"""<h1>Prix du {E(full)} à {E(nm)}</h1>
+<p class="lead">Le {fr_date(today)}, le {E(full)} le moins cher à {E(nm)} est à <b>{eur(S[fresh[0]][5][k])}</b> chez {E(S[fresh[0]][8] or 'la station ' + S[fresh[0]][4])}. Prix moyen : {eur(round(a))} sur {len(ids)} stations, {cmp_nat(a, k).replace('<span class="down">', '').replace('<span class="up">', '').replace('</span>', '').replace('▼ ', 'soit ').replace('▲ ', 'soit ')}. Entre la moins chère et la plus chère, l'écart atteint {fmt2(gain)} € sur un plein de {TANK} litres.</p>
+<p class="upd">Relevé du {upd_txt} · <a class="btn" href="{url(ppath)}">Tous les carburants à {E(nm)}</a></p>
+<h2>Toutes les stations de {E(nm)} qui vendent du {E(lab)}</h2>
+{price_table(ids, S, [k], show_city=True)}
+<p>{f'<a href="{url(fuel_dep_path[(k, d)])}">Prix du {E(lab)} dans le département {E(DEPN.get(d, d))} →</a> · ' if (k, d) in fuel_dep_path else ''}<a href="{url('/' + sl + '/')}">Prix du {E(lab)} en France →</a></p>"""
+            title = f"Prix du {lab} à {nm} aujourd'hui : station la moins chère"
+            desc = f"{lab} dès {eur(S[fresh[0]][5][k])} à {nm} le {fr_date(today)}, {eur(round(a))} en moyenne. Comparez les {len(ids)} stations, prix officiels mis à jour en continu."
+            write(out, pth, page(pth, title, desc, body, [("Accueil", "/"), (nm, ppath), (f"Prix du {lab}", pth)], None, upd_txt))
+            urls.append((pth, "0.6"))
 
     # ------------------------------------------------ a propos
     body = f"""<h1>Sources et méthode</h1>
