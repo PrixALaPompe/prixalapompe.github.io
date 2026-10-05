@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
       base: ${{ steps.pages.outputs.base_url }}
@@ -65,7 +65,7 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -77,7 +77,7 @@ jobs:
     # Signale le sitemap a Bing / IndexNow une fois par jour (le premier passage apres 6h UTC)
     needs: [build, deploy]
     if: github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: IndexNow
         env:
