@@ -263,7 +263,7 @@ footer.foot a{color:var(--accent)}
 .detail .acts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .detail .acts a{display:flex;align-items:center;justify-content:center;min-height:44px;border-radius:10px;font-weight:600;text-decoration:none;border:1px solid var(--line);color:var(--ink)}
 .detail .acts a.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-.side.show-detail .side-scroll>:not(.detail){display:none!important}
+.side.show-detail .side-scroll>:not(.detail):not(.search){display:none!important}
 @media (max-width:860px){
   .topbar-in{flex-wrap:wrap;gap:10px;padding:10px 16px}
   .live{margin-left:auto}
@@ -281,28 +281,26 @@ footer.foot a{color:var(--accent)}
   .seg{padding:3px}
   .seg button{padding:8px 11px;font-size:13px}
   .wrap:first-of-type{padding-inline:0}
-  .explore{display:block;position:relative;height:calc(100dvh - var(--th,108px));min-height:420px;max-height:none;padding:0}
-  .mapbox{position:absolute;inset:0;border-radius:0;border:0;box-shadow:none}
+  .explore{display:flex;flex-direction:column;height:auto;min-height:0;max-height:none;padding:0 0 8px;gap:0}
+  .side,.side-scroll{display:contents}
+  .sheet-handle,.sheet-links{display:none!important}
+  .explore>.mapbox{order:2;position:relative;height:62dvh;min-height:340px;max-height:640px;border-radius:0;border:0;box-shadow:none}
   .leaflet-control-zoom{display:none}
   .hud.tr{top:10px;right:10px;padding:5px 9px}
   .mob-only{display:inline}.dt-only{display:none}
   .locate{top:10px;right:auto;left:10px}
-  .side{position:absolute;left:0;right:0;bottom:0;height:calc(100% - 16px);z-index:800;border-radius:18px 18px 0 0;border:0;
-    box-shadow:0 -8px 28px rgba(22,27,46,.22);transform:translateY(var(--sy,60%));transition:transform .3s cubic-bezier(.2,.8,.2,1);will-change:transform}
-  .side.dragging{transition:none}
-  .sheet-handle{display:flex;justify-content:center;padding:9px 0 6px;touch-action:none;cursor:grab;flex:none}
-  .sheet-handle i{width:42px;height:5px;border-radius:3px;background:var(--line)}
-  .side-scroll{padding:2px 14px calc(24px + env(safe-area-inset-bottom,0px));gap:14px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
-  .side-scroll>.search{order:1}
-  .side-scroll>.sum{order:2;display:flex}
+  .gesture{position:absolute;inset:0;z-index:650;display:flex;align-items:center;justify-content:center;background:rgba(22,27,46,.45);color:#fff;font:600 15px var(--font-body);text-align:center;padding:24px;pointer-events:none;opacity:0;transition:opacity .2s}
+  .gesture.on{opacity:1}
+  .map-on{position:absolute;z-index:520;left:10px;bottom:10px;appearance:none;border:0;background:var(--ink);color:var(--surface);border-radius:999px;padding:7px 12px;font:600 12px var(--font-body);cursor:pointer;box-shadow:var(--shadow)}
+  .side-scroll>.search{order:1;margin:10px 14px}
+  .side-scroll>.detail{order:3;margin:12px 14px 0}
+  .side-scroll>.sum{order:3;display:flex;margin:12px 14px 0;width:auto}
   .side-scroll>.sum[hidden]{display:none}
-  .side-scroll>.listbox{order:3}
-  .side-scroll>.homecard{order:4}
-  .side-scroll>.opts{order:5}
-  .side-scroll>.nat{order:6}
-  .side-scroll>.legend{order:7}
-  .side-scroll>.sheet-links{order:8;display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line-2);padding-top:8px}
-  .sheet-links a{display:flex;align-items:center;min-height:44px;color:var(--accent);font-weight:600;text-decoration:none}
+  .side-scroll>.listbox{order:4;margin:14px 14px 0}
+  .side-scroll>.homecard{order:5;margin:14px 14px 0;width:auto}
+  .side-scroll>.opts{order:6;margin:14px 14px 0}
+  .side-scroll>.nat{order:7;margin:14px 14px 0}
+  .side-scroll>.legend{order:8;margin:14px 14px 0}
   .search input{font-size:16px;padding-block:12px}
   .row{min-height:52px}
   .brand-sel{font-size:16px}
@@ -382,6 +380,8 @@ footer.foot a{color:var(--accent)}
       <div class="mapbox">
         <div id="map" aria-label="Carte des stations-service"></div>
         <div class="hud tr"><b id="hudN">0</b> stations<span class="dt-only"> à l'écran</span><span class="mob-only" id="hudT"></span></div>
+        <div class="gesture" id="gesture">Touchez la carte pour la déplacer, ou utilisez deux doigts</div>
+        <button class="map-on" id="mapOn" type="button" hidden>Carte active · Terminer</button>
         <button class="locate" id="locate" type="button" aria-label="Afficher les stations autour de moi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span>Autour de moi</span></button>
         <div class="hud bl" id="wheelHint">Clique sur la carte pour zoomer à la molette</div>
         <div class="loading" id="loading">Chargement des stations…</div>
@@ -617,8 +617,7 @@ function updateList(){
 function openStation(i){
   if(st.mode!=="stations")setMode("stations");
   const s=S[i];
-  if(MOB.matches){showDetail(i);$("carte").scrollIntoView({behavior:"smooth"});
-    const z=Math.max(map.getZoom(),14),pt=map.project([s[0],s[1]],z).add([0,sheetOffset()/2]);map.flyTo(map.unproject(pt,z),z,{duration:.7});return}
+  if(MOB.matches){showDetail(i);map.flyTo([s[0],s[1]],Math.max(map.getZoom(),14),{duration:.7});return}
   map.flyTo([s[0],s[1]],Math.max(map.getZoom(),14),{duration:.7});
   map.once("moveend",()=>{if(markers[i])markers[i].openPopup();else L.popup({maxWidth:320}).setLatLng([s[0],s[1]]).setContent(popup(i)).openOn(map)});
 }
@@ -629,9 +628,8 @@ function peekH(){const sc=$("sideScroll");const se=sc.querySelector(".search"),s
   return handle.offsetHeight+(side.classList.contains("show-detail")?150:(se.offsetHeight+(su.hidden?0:su.offsetHeight+14)))+18}
 function sheetY(state){const H=side.offsetHeight,E=explore.offsetHeight;
   return state==="full"?0:state==="half"?Math.max(0,H-E*0.52):Math.max(0,H-peekH())}
-function sheetOffset(){return MOB.matches?explore.offsetHeight-(side.offsetHeight-sheetY(sheetState)):0}
-function setSheet(state){sheetState=state;if(!MOB.matches)return;side.style.setProperty("--sy",sheetY(state)+"px");
-  handle.setAttribute("aria-expanded",state!=="peek")}
+function sheetOffset(){return 0}
+function setSheet(state){sheetState=state}
 function setTh(){document.documentElement.style.setProperty("--th",document.querySelector(".topbar").offsetHeight+"px");setSheet(sheetState)}
 addEventListener("resize",setTh);try{MOB.addEventListener("change",setTh)}catch(e){}
 setTimeout(setTh,50);
@@ -651,17 +649,32 @@ setTimeout(setTh,50);
 })();
 function stationSlug(s){const sl=x=>x.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
   return sl(sl((s[8]||"station")+"-"+s[3]).slice(0,60))}
+let selMarker=null;
 function showDetail(i){
   const d=$("detail"),s=S[i];
+  if(selMarker)selMarker.remove();
+  selMarker=L.circleMarker([s[0],s[1]],{pane:"me",radius:15,color:css("--accent"),weight:3,fill:false,interactive:false}).addTo(map);
   const page=/github\.io$|prixalapompe/.test(location.hostname)?`<a href="station/${stationSlug(s)}-${s[7]}/">Fiche complète</a>`:"";
   d.innerHTML=`<button class="back" type="button">← Retour à la liste</button>${popup(i)}<div class="acts"><a class="pri" href="https://www.google.com/maps/dir/?api=1&destination=${s[0]},${s[1]}" target="_blank" rel="noopener">Itinéraire</a>${page||'<a href="#" data-close>Fermer</a>'}</div>`;
   d.querySelector(".pop .go")&&d.querySelector(".pop .go").remove();
-  d.hidden=false;side.classList.add("show-detail");$("sideScroll").scrollTop=0;
+  d.hidden=false;side.classList.add("show-detail");
+  if(MOB.matches){requestAnimationFrame(()=>{const top=d.getBoundingClientRect().top+scrollY-innerHeight*0.56;scrollTo({top:Math.max(0,top),behavior:"smooth"})})}
   d.querySelector(".back").onclick=hideDetail;const c=d.querySelector("[data-close]");if(c)c.onclick=e=>{e.preventDefault();hideDetail()};
   const sp=d.querySelector("[data-sp]");if(sp)fillSpark(sp);
   setSheet("half");
 }
-function hideDetail(){$("detail").hidden=true;side.classList.remove("show-detail");setSheet("peek")}
+function hideDetail(){$("detail").hidden=true;side.classList.remove("show-detail");if(selMarker){selMarker.remove();selMarker=null}}
+// ---------- Gestes sur mobile : la page défile, la carte se déplace à deux doigts ou après un toucher ----------
+if(matchMedia("(pointer:coarse)").matches){
+  const g=$("gesture"),on=$("mapOn"),mc=map.getContainer();let active=false,ht=null;
+  const activate=()=>{if(active)return;active=true;map.dragging.enable();on.hidden=false;g.classList.remove("on")};
+  const deactivate=()=>{if(!active)return;active=false;map.dragging.disable();on.hidden=true};
+  map.dragging.disable();
+  mc.addEventListener("touchmove",e=>{if(!active&&e.touches.length===1){g.classList.add("on");clearTimeout(ht);ht=setTimeout(()=>g.classList.remove("on"),1300)}},{passive:true});
+  map.on("click",activate);
+  on.onclick=e=>{e.stopPropagation();deactivate()};
+  try{new IntersectionObserver(es=>es.forEach(x=>{if(x.intersectionRatio<0.5)deactivate()}),{threshold:[0,.5,1]}).observe(mc)}catch(e){}
+}
 // ---------- Autour de moi ----------
 let meMarker=null;
 $("locate").onclick=()=>{
