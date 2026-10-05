@@ -249,22 +249,73 @@ footer.foot a{color:var(--accent)}
 .pop .dist{font-size:12px;color:var(--muted);margin-top:6px}
 
 @media (max-width:1100px){ .totems{grid-template-columns:repeat(3,1fr)} }
+.sheet-handle,.sheet-links,.sum,.mob-only{display:none}
+.sum{appearance:none;width:100%;text-align:left;border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:10px 12px;cursor:pointer;align-items:center;gap:10px;font-size:13px;color:var(--ink-2)}
+.sum b{color:var(--ink)}
+.sum .price{font-size:17px;color:var(--cheap);margin-left:auto}
+.locate{position:absolute;z-index:520;right:12px;top:54px;appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--accent);border-radius:999px;padding:8px 14px 8px 11px;display:flex;align-items:center;gap:7px;font:600 13px var(--font-body);cursor:pointer;box-shadow:var(--shadow)}
+.locate:hover{border-color:var(--accent)}
+.locate.busy{opacity:.6}
+.me-dot{width:16px;height:16px;border-radius:50%;background:#2a78d6;border:3px solid #fff;box-shadow:0 0 0 6px rgba(42,120,214,.25)}
+.detail{display:flex;flex-direction:column;gap:10px}
+.detail .back{appearance:none;border:0;background:transparent;color:var(--accent);font:600 14px var(--font-body);padding:4px 0;cursor:pointer;text-align:left}
+.detail .pop{font-size:14px}
+.detail .acts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.detail .acts a{display:flex;align-items:center;justify-content:center;min-height:44px;border-radius:10px;font-weight:600;text-decoration:none;border:1px solid var(--line);color:var(--ink)}
+.detail .acts a.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.side.show-detail .side-scroll>:not(.detail){display:none!important}
 @media (max-width:860px){
   .topbar-in{flex-wrap:wrap;gap:10px;padding:10px 16px}
   .live{margin-left:auto}
   .seg{order:3;width:100%}
   .wrap{padding-inline:16px}
-  .explore{grid-template-columns:1fr;height:auto;max-height:none;min-height:0}
-  .mapbox{order:-1;height:62vh;min-height:380px}
-  .side{box-shadow:none}
+  .topbar-in{padding:6px 12px 8px;gap:6px 10px}
+  .logo b{font-size:18px}
+  .logo svg{width:20px;height:20px}
+  .topbar-in{flex-wrap:wrap}
+  .live{font-size:11px;gap:6px;margin-left:auto}
+  .live i{width:7px;height:7px}
+  .me-btn{padding:7px 10px}
+  .me-btn .lbl{display:none}
+  .me-btn{margin-left:auto}
+  .seg{padding:3px}
+  .seg button{padding:8px 11px;font-size:13px}
+  .wrap:first-of-type{padding-inline:0}
+  .explore{display:block;position:relative;height:calc(100dvh - var(--th,108px));min-height:420px;max-height:none;padding:0}
+  .mapbox{position:absolute;inset:0;border-radius:0;border:0;box-shadow:none}
+  .leaflet-control-zoom{display:none}
+  .hud.tr{top:10px;right:10px;padding:5px 9px}
+  .mob-only{display:inline}.dt-only{display:none}
+  .locate{top:10px;right:auto;left:10px}
+  .side{position:absolute;left:0;right:0;bottom:0;height:calc(100% - 16px);z-index:800;border-radius:18px 18px 0 0;border:0;
+    box-shadow:0 -8px 28px rgba(22,27,46,.22);transform:translateY(var(--sy,60%));transition:transform .3s cubic-bezier(.2,.8,.2,1);will-change:transform}
+  .side.dragging{transition:none}
+  .sheet-handle{display:flex;justify-content:center;padding:9px 0 6px;touch-action:none;cursor:grab;flex:none}
+  .sheet-handle i{width:42px;height:5px;border-radius:3px;background:var(--line)}
+  .side-scroll{padding:2px 14px calc(24px + env(safe-area-inset-bottom,0px));gap:14px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  .side-scroll>.search{order:1}
+  .side-scroll>.sum{order:2;display:flex}
+  .side-scroll>.sum[hidden]{display:none}
+  .side-scroll>.listbox{order:3}
+  .side-scroll>.homecard{order:4}
+  .side-scroll>.opts{order:5}
+  .side-scroll>.nat{order:6}
+  .side-scroll>.legend{order:7}
+  .side-scroll>.sheet-links{order:8;display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line-2);padding-top:8px}
+  .sheet-links a{display:flex;align-items:center;min-height:44px;color:var(--accent);font-weight:600;text-decoration:none}
+  .search input{font-size:16px;padding-block:12px}
+  .row{min-height:52px}
+  .brand-sel{font-size:16px}
+  .switch button{min-height:40px}
+  .leaflet-popup-content{min-width:240px}
   .deps{grid-template-columns:1fr}
   .sec-h h2{font-size:32px}
   .chart{height:300px}
 }
 @media (max-width:520px){
   .totems{grid-template-columns:repeat(2,1fr)}
-  .logo b{font-size:22px}
-  .live span.long{display:none}
+  .logo b{font-size:18px}
+  .live{display:none}
   .dep-row{grid-template-columns:30px 1fr 60px 64px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
@@ -278,20 +329,23 @@ footer.foot a{color:var(--accent)}
     </a>
     <nav class="seg" id="seg" aria-label="Carburant"></nav>
     <div class="live" title="Les données sont actualisées automatiquement"><i></i><span><span class="long">Relevé officiel du </span><b id="upd">…</b></span></div>
-    <button class="me-btn" id="meBtn" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.3L12 17.2l-5.6 2.9 1.1-6.3L2.9 9.4l6.3-.9z"/></svg>Mon espace<span class="cnt" id="favN" hidden>0</span></button>
+    <button class="me-btn" id="meBtn" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.3L12 17.2l-5.6 2.9 1.1-6.3L2.9 9.4l6.3-.9z"/></svg><span class="lbl">Mon espace</span><span class="cnt" id="favN" hidden>0</span></button>
   </div>
 </header>
 
 <main>
   <div class="wrap">
     <section class="explore" id="carte">
-      <aside class="side">
-        <div class="side-scroll">
+      <aside class="side" id="side">
+        <div class="sheet-handle" id="sheetHandle" role="button" tabindex="0" aria-label="Agrandir ou réduire le panneau"><i></i></div>
+        <div class="side-scroll" id="sideScroll">
+          <div class="detail" id="detail" hidden></div>
           <div class="search" role="search">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.8"/><path d="m11 11 3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
             <input id="q" type="search" placeholder="Ville ou code postal" autocomplete="off" aria-label="Rechercher une ville ou un code postal" aria-autocomplete="list" aria-controls="sugg">
             <div class="sugg" id="sugg" role="listbox" hidden></div>
           </div>
+          <button class="sum" id="sum" type="button" hidden></button>
           <button class="homecard" id="homecard" type="button"></button>
           <div class="opts">
             <div class="switch" role="group" aria-label="Affichage">
@@ -314,15 +368,21 @@ footer.foot a{color:var(--accent)}
             <div class="ramp"></div>
             <div class="ramp-l"><span id="lLo">—</span><span id="lMid">—</span><span id="lHi">—</span></div>
           </div>
-          <div>
+          <div class="listbox">
             <p class="label" style="margin-bottom:4px">Les moins chères à l'écran</p>
             <div class="list" id="list"><div class="empty">Chargement…</div></div>
           </div>
+          <nav class="sheet-links" aria-label="Plus d'informations">
+            <a href="#evolution">Évolution des prix en France ↓</a>
+            <a href="#departements">Prix par département ↓</a>
+            <a href="#guide">Prix par ville et par carburant ↓</a>
+          </nav>
         </div>
       </aside>
       <div class="mapbox">
         <div id="map" aria-label="Carte des stations-service"></div>
-        <div class="hud tr"><b id="hudN">0</b> stations à l'écran</div>
+        <div class="hud tr"><b id="hudN">0</b> stations<span class="dt-only"> à l'écran</span><span class="mob-only" id="hudT"></span></div>
+        <button class="locate" id="locate" type="button" aria-label="Afficher les stations autour de moi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><span>Autour de moi</span></button>
         <div class="hud bl" id="wheelHint">Clique sur la carte pour zoomer à la molette</div>
         <div class="loading" id="loading">Chargement des stations…</div>
         <div class="pickbar" id="pickbar" hidden>Clique sur la carte à l'endroit de ton adresse <button type="button" id="pickCancel">Annuler</button></div>
@@ -429,6 +489,7 @@ const [DATA,HIST,DEPS,GEO]=await Promise.all(["data/stations.json","data/history
 const S=DATA.s;
 $("loading").hidden=true;
 const u=new Date(DATA.u.replace(" ","T"));
+$("hudT").textContent=" · relevé "+String(u.getHours()).padStart(2,"0")+"h"+String(u.getMinutes()).padStart(2,"0");
 $("upd").textContent=u.getDate()+" "+MONTHS[u.getMonth()]+" · "+String(u.getHours()).padStart(2,"0")+"h"+String(u.getMinutes()).padStart(2,"0");
 $("built").textContent="dernière actualisation : "+DATA.built.replace(" "," à ")+" UTC";
 
@@ -533,7 +594,10 @@ async function fillSpark(el){
     <circle cx="${x(series[series.length-1][0])}" cy="${y(last[1])}" r="3" fill="${col}"/><text x="1" y="${Hh-1}">${m(0)}</text><text x="${W-1}" y="${Hh-1}" text-anchor="end">aujourd'hui</text>
     <text x="${W-1}" y="${y(hi)-1}" text-anchor="end">max ${fmt2(hi)}</text></svg>`);
 }
-map.on("popupopen",e=>{const el=e.popup.getElement().querySelector("[data-sp]");if(el)fillSpark(el)});
+const MOB=matchMedia("(max-width:860px)");
+map.on("popupopen",e=>{const el=e.popup.getElement().querySelector("[data-sp]");if(!el)return;
+  if(MOB.matches){const i=+el.dataset.sp;map.closePopup();showDetail(i);return}
+  fillSpark(el)});
 function updateList(){
   const b=map.getBounds();const vis=shown.filter(i=>b.contains([S[i][0],S[i][1]]));
   $("hudN").textContent=vis.length.toLocaleString("fr-FR");
@@ -543,13 +607,74 @@ function updateList(){
     b.innerHTML=`<span class="n">${n+1}</span><span class="w"><b></b><i></i></span><span class="price" style="color:${colorFor(s[5][st.fuel])}">${fmt(s[5][st.fuel])}</span>`;
     b.querySelector("b").textContent=title(i);b.querySelector("i").textContent=(s[8]?s[3]+" · ":(s[4]?s[4]+" · ":""))+ago(s[6][st.fuel]);
     b.onclick=()=>openStation(i);L8.appendChild(b)});
+  const su=$("sum");
+  if(vis.length){const i=vis.find(j=>S[j][6][st.fuel]<=7)??vis[0],s=S[i];su.hidden=false;
+    su.innerHTML=`<span>Moins chère ici <small style="color:var(--muted)">(prix récent)</small><br><b></b></span><span class="price">${fmt(s[5][st.fuel])}</span>`;
+    su.querySelector("b").textContent=title(i);su.onclick=()=>openStation(i)}
+  else su.hidden=true;
+  if(typeof setSheet==="function"&&sheetState==="peek")setSheet("peek");
 }
 function openStation(i){
   if(st.mode!=="stations")setMode("stations");
-  const s=S[i];map.flyTo([s[0],s[1]],Math.max(map.getZoom(),14),{duration:.7});
+  const s=S[i];
+  if(MOB.matches){showDetail(i);$("carte").scrollIntoView({behavior:"smooth"});
+    const z=Math.max(map.getZoom(),14),pt=map.project([s[0],s[1]],z).add([0,sheetOffset()/2]);map.flyTo(map.unproject(pt,z),z,{duration:.7});return}
+  map.flyTo([s[0],s[1]],Math.max(map.getZoom(),14),{duration:.7});
   map.once("moveend",()=>{if(markers[i])markers[i].openPopup();else L.popup({maxWidth:320}).setLatLng([s[0],s[1]]).setContent(popup(i)).openOn(map)});
-  if(innerWidth<=860)$("carte").scrollIntoView({behavior:"smooth"});
 }
+// ---------- Panneau du bas (mobile) ----------
+const side=$("side"),handle=$("sheetHandle"),explore=$("carte");
+let sheetState="peek";
+function peekH(){const sc=$("sideScroll");const se=sc.querySelector(".search"),su=$("sum");
+  return handle.offsetHeight+(side.classList.contains("show-detail")?150:(se.offsetHeight+(su.hidden?0:su.offsetHeight+14)))+18}
+function sheetY(state){const H=side.offsetHeight,E=explore.offsetHeight;
+  return state==="full"?0:state==="half"?Math.max(0,H-E*0.52):Math.max(0,H-peekH())}
+function sheetOffset(){return MOB.matches?explore.offsetHeight-(side.offsetHeight-sheetY(sheetState)):0}
+function setSheet(state){sheetState=state;if(!MOB.matches)return;side.style.setProperty("--sy",sheetY(state)+"px");
+  handle.setAttribute("aria-expanded",state!=="peek")}
+function setTh(){document.documentElement.style.setProperty("--th",document.querySelector(".topbar").offsetHeight+"px");setSheet(sheetState)}
+addEventListener("resize",setTh);try{MOB.addEventListener("change",setTh)}catch(e){}
+setTimeout(setTh,50);
+(function(){let y0=null,s0=0,t0=0,moved=false;
+  const down=e=>{if(!MOB.matches)return;y0=e.clientY;s0=sheetY(sheetState);t0=Date.now();moved=false;side.classList.add("dragging");try{handle.setPointerCapture(e.pointerId)}catch(_){}};
+  const move=e=>{if(y0===null)return;const dy=e.clientY-y0;if(Math.abs(dy)>4)moved=true;side.style.setProperty("--sy",Math.max(0,s0+dy)+"px")};
+  const up=e=>{if(y0===null)return;side.classList.remove("dragging");const dy=e.clientY-y0,v=dy/Math.max(1,Date.now()-t0);y0=null;
+    if(!moved){setSheet(sheetState==="peek"?"half":"peek");return}
+    const cur=s0+dy,opts=["full","half","peek"].map(s=>[s,sheetY(s)]);
+    let best=opts.reduce((a,b)=>Math.abs(b[1]-cur)<Math.abs(a[1]-cur)?b:a)[0];
+    if(v>0.6)best=sheetState==="full"?"half":"peek";else if(v<-0.6)best=sheetState==="peek"?"half":"full";
+    setSheet(best)};
+  handle.addEventListener("pointerdown",down);handle.addEventListener("pointermove",move);handle.addEventListener("pointerup",up);handle.addEventListener("pointercancel",up);
+  handle.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setSheet(sheetState==="full"?"peek":sheetState==="peek"?"half":"full")}});
+  $("q").addEventListener("focus",()=>{if(MOB.matches)setSheet("full")});
+  map.on("dragstart",()=>{if(MOB.matches&&sheetState!=="peek"&&!side.classList.contains("show-detail"))setSheet("peek")});
+})();
+function stationSlug(s){const sl=x=>x.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
+  return sl(sl((s[8]||"station")+"-"+s[3]).slice(0,60))}
+function showDetail(i){
+  const d=$("detail"),s=S[i];
+  const page=/github\.io$|prixalapompe/.test(location.hostname)?`<a href="station/${stationSlug(s)}-${s[7]}/">Fiche complète</a>`:"";
+  d.innerHTML=`<button class="back" type="button">← Retour à la liste</button>${popup(i)}<div class="acts"><a class="pri" href="https://www.google.com/maps/dir/?api=1&destination=${s[0]},${s[1]}" target="_blank" rel="noopener">Itinéraire</a>${page||'<a href="#" data-close>Fermer</a>'}</div>`;
+  d.querySelector(".pop .go")&&d.querySelector(".pop .go").remove();
+  d.hidden=false;side.classList.add("show-detail");$("sideScroll").scrollTop=0;
+  d.querySelector(".back").onclick=hideDetail;const c=d.querySelector("[data-close]");if(c)c.onclick=e=>{e.preventDefault();hideDetail()};
+  const sp=d.querySelector("[data-sp]");if(sp)fillSpark(sp);
+  setSheet("half");
+}
+function hideDetail(){$("detail").hidden=true;side.classList.remove("show-detail");setSheet("peek")}
+// ---------- Autour de moi ----------
+let meMarker=null;
+$("locate").onclick=()=>{
+  if(!navigator.geolocation){toast("La localisation n'est pas disponible sur cet appareil");return}
+  const b=$("locate");b.classList.add("busy");
+  navigator.geolocation.getCurrentPosition(p=>{b.classList.remove("busy");
+    const ll=[p.coords.latitude,p.coords.longitude];
+    if(meMarker)meMarker.remove();
+    meMarker=L.marker(ll,{pane:"me",icon:L.divIcon({className:"",html:'<div class="me-dot"></div>',iconSize:[16,16],iconAnchor:[8,8]}),title:"Vous êtes ici",keyboard:false}).addTo(map);
+    map.flyTo(ll,13,{duration:.8});if(MOB.matches)setSheet("half");
+  },err=>{b.classList.remove("busy");toast(err.code===1?"Localisation refusée : autorise-la dans ton navigateur pour voir les stations autour de toi":"Position introuvable, réessaie dans un instant")},
+  {enableHighAccuracy:false,timeout:10000,maximumAge:120000});
+};
 map.on("moveend",updateList);
 let lastR=radius();map.on("zoomend",()=>{const r=radius();if(r!==lastR){lastR=r;layer.eachLayer(m=>m.setRadius(r))}});
 
@@ -581,7 +706,7 @@ function attachSuggest(qi,sg,onPick){
 attachSuggest($("q"),$("sugg"),p=>{
   const idx=PL.filter(x=>x.cp===p.cp||x.n===p.n).flatMap(x=>x.idx);
   const bb=L.latLngBounds(idx.map(i=>[S[i][0],S[i][1]]));map.flyToBounds(bb.pad(.6),{maxZoom:13,duration:.7});
-  if(innerWidth<=860)$("carte").scrollIntoView({behavior:"smooth"})});
+  if(MOB.matches){$("carte").scrollIntoView({behavior:"smooth"});setSheet("peek")}});
 
 // ---------- Department rankings ----------
 function renderDepLists(){

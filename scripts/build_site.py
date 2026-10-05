@@ -89,10 +89,17 @@ def share_bar(path, text):
             f'<a href="https://wa.me/?text={t}%20{q}" rel="noopener" target="_blank">WhatsApp</a>'
             f'<a href="https://www.facebook.com/sharer/sharer.php?u={q}" rel="noopener" target="_blank">Facebook</a>'
             f'<a href="https://twitter.com/intent/tweet?text={t}&url={q}" rel="noopener" target="_blank">X</a>'
-            f'<button type="button" data-copy="{E(u)}">Copier le lien</button></div>')
+            f'<button type="button" data-copy="{E(u)}">Copier le lien</button></div>'
+            f'<button type="button" class="nshare" data-share="{E(u)}" data-title="{E(text)}" hidden>Partager cette page</button>')
 
 
-COPY_JS = """<script>document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(!b)return;
+COPY_JS = """<script>if(navigator.share)document.querySelectorAll('.nshare').forEach(function(b){b.hidden=false;b.previousElementSibling&&b.previousElementSibling.classList.add('has-native')});
+document.addEventListener('click',function(e){var s=e.target.closest('[data-share]');if(s){navigator.share({title:s.getAttribute('data-title'),url:s.getAttribute('data-share')}).catch(function(){});return}
+var f=e.target.closest('[data-fav]');if(f){var id=f.getAttribute('data-fav'),m;try{m=JSON.parse(localStorage.getItem('pap-me')||'null')||{home:null,fav:[],radius:10}}catch(_){m={home:null,fav:[],radius:10}}
+var k=m.fav.indexOf(id);if(k>=0)m.fav.splice(k,1);else m.fav.push(id);try{localStorage.setItem('pap-me',JSON.stringify(m))}catch(_){}
+f.setAttribute('aria-pressed',k<0);f.querySelector('span').textContent=k<0?'Favori ★':'Ajouter aux favoris';return}});
+document.querySelectorAll('[data-fav]').forEach(function(f){try{var m=JSON.parse(localStorage.getItem('pap-me')||'null');if(m&&m.fav.indexOf(f.getAttribute('data-fav'))>=0){f.setAttribute('aria-pressed','true');f.querySelector('span').textContent='Favori ★'}}catch(_){}});
+document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(!b)return;
 var u=b.getAttribute('data-copy');(navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(function(){b.textContent='Lien copié'},function(){prompt('Copiez ce lien :',u)});});</script>"""
 
 
@@ -168,7 +175,8 @@ def st_link(s):
 def price_table(rows_idx, S, fuels_k, dep_names=None, show_city=False, limit=None):
     head = "<th>Station</th>" + ("<th>Commune</th>" if show_city else "") + \
            "".join(f"<th>{E(FUELS[k][1])}</th>" for k in fuels_k) + "<th>Mise à jour</th>"
-    mins = {k: min([S[i][5][k] for i in rows_idx if S[i][5][k]] or [0]) for k in fuels_k}
+    mins = {k: min([S[i][5][k] for i in rows_idx if S[i][5][k] and S[i][6][k] <= 7] or
+                   [S[i][5][k] for i in rows_idx if S[i][5][k]] or [0]) for k in fuels_k}
     out = []
     for i in rows_idx[:limit] if limit else rows_idx:
         s = S[i]
@@ -177,13 +185,13 @@ def price_table(rows_idx, S, fuels_k, dep_names=None, show_city=False, limit=Non
         cells = ""
         for k in fuels_k:
             p = s[5][k]
-            cls = ' class="best"' if p and p == mins[k] else ""
-            cells += f"<td{cls}>{eur(p) if p else '—'}</td>"
+            cls = ' class="best"' if p and p <= mins[k] and (s[6][k] <= 7 or p == mins[k]) else ""
+            cells += f"<td{cls} data-l=\"{E(FUELS[k][1])}\">{eur(p) if p else '—'}</td>"
         ages = [s[6][k] for k in fuels_k if s[5][k]]
-        city = f'<td>{E(s[3])} <small>{E(s[2])}</small></td>' if show_city else ""
-        out.append(f'<tr><td><a href="{st_link(s)}">{E(nm)}</a>{brand}<small>{E(s[4])}</small></td>{city}{cells}'
-                   f'<td class="age">{ago(min(ages)) if ages else "—"}</td></tr>')
-    return f'<div class="tw"><table class="pt"><thead><tr>{head}</tr></thead><tbody>{"".join(out)}</tbody></table></div>'
+        city = f'<td class="city" data-l="Commune">{E(s[3])} <small>{E(s[2])}</small></td>' if show_city else ""
+        out.append(f'<tr><td class="stn"><a href="{st_link(s)}">{E(nm)}</a>{brand}<small>{E(s[4])}</small></td>{city}{cells}'
+                   f'<td class="age" data-l="Mise à jour">{ago(min(ages)) if ages else "—"}</td></tr>')
+    return f'<div class="tw"><table class="pt cardify"><thead><tr>{head}</tr></thead><tbody>{"".join(out)}</tbody></table></div>'
 
 
 def spark_svg(values, w=720, h=180, color="#1F3A93"):
@@ -458,8 +466,9 @@ def main():
         cards = ""
         for k in fk:
             v = [S[i][5][k] for i in idx if S[i][5][k]]
+            vf = [S[i][5][k] for i in idx if S[i][5][k] and S[i][6][k] <= 7] or v
             avg = sum(v) / len(v)
-            cards += (f'<div class="card"><h3>{E(FUELS[k][1])}</h3><p class="big">{eur(min(v))}</p>'
+            cards += (f'<div class="card"><h3>{E(FUELS[k][1])}</h3><p class="big">{eur(min(vf))}</p>'
                       f'<p>le moins cher · moyenne {eur(round(avg))}</p><p class="cmp">{cmp_nat(avg, k)}</p></div>')
         bs = S[best]
         bname = bs[8] or f"la station {bs[4]}"
@@ -470,7 +479,7 @@ def main():
         extra, faq_ld = extra_sections(idx, S, f"à {nm}", main_k, DH.get(st_key(cp)), hstart, DEPN.get(d, d), SV, brand_path)
         body = f"""<h1>Prix des carburants à {E(nm)} ({cp})</h1>
 <p class="lead">{lead}</p>
-<p class="upd">Relevé du {upd_txt} · <a class="btn" href="{url(f'/?cp={cp}')}">Voir sur la carte</a></p>
+<p class="upd">Relevé du {upd_txt} <a class="btn" href="{url(f'/?cp={cp}')}">Voir sur la carte</a></p>
 <section class="cards">{cards}</section>
 <h2>Toutes les stations-service à {E(nm)}</h2>
 {price_table(idx, S, fk)}
@@ -512,8 +521,9 @@ def main():
         cards = ""
         for k in fk:
             vals = [S[i][5][k] for i in idx if S[i][5][k]]
+            vf = [S[i][5][k] for i in idx if S[i][5][k] and S[i][6][k] <= 7] or vals
             avg = sum(vals) / len(vals)
-            cards += (f'<div class="card"><h3>{E(FUELS[k][1])}</h3><p class="big">{eur(min(vals))}</p>'
+            cards += (f'<div class="card"><h3>{E(FUELS[k][1])}</h3><p class="big">{eur(min(vf))}</p>'
                       f'<p>le moins cher · moyenne {eur(round(avg))}</p><p class="cmp">{cmp_nat(avg, k)}</p></div>')
         cps = sorted(v["keys"])
         cplinks = "".join(f'<li><a href="{url(city_path[k])}">{E(city_name[k])} ({k[0]})</a> <small>{len(by_city[k])} st.</small></li>' for k in cps)
@@ -523,7 +533,7 @@ def main():
         extra, faq_ld = extra_sections(idx, S, f"à {nm}", main_k, DH.get(st_key(cps[0][0])), hstart, DEPN.get(d, d), SV, brand_path)
         body = f"""<h1>Prix des carburants à {E(nm)}</h1>
 <p class="lead">{lead}</p>
-<p class="upd">Relevé du {upd_txt} · <a class="btn" href="{url(f'/?lat={centroid[cps[0]][0]:.4f}&lon={centroid[cps[0]][1]:.4f}&z=12')}">Voir sur la carte</a></p>
+<p class="upd">Relevé du {upd_txt} <a class="btn" href="{url(f'/?lat={centroid[cps[0]][0]:.4f}&lon={centroid[cps[0]][1]:.4f}&z=12')}">Voir sur la carte</a></p>
 <section class="cards">{cards}</section>
 <h2>Les stations-service de {E(nm)}, de la moins chère à la plus chère</h2>
 {price_table(idx, S, fk, show_city=True)}
@@ -599,7 +609,7 @@ def main():
         dt = "".join(f'<tr><td>{j + 1}</td><td><a href="{url(dep_path[d])}">{E(DEPN.get(d, d))} ({d})</a></td><td>{eur(round(a))}</td></tr>' for j, (a, d) in enumerate(drows))
         body = f"""<h1>Prix du {E(full)} aujourd'hui en France</h1>
 <p class="lead">Le {fr_date(today)}, le {E(full)} coûte en moyenne <b>{eur(round(n['avg']))}</b> le litre en France métropolitaine, de {eur(n['min'])} à {eur(n['max'])} selon les stations ({n['n']:,} stations le proposent).</p>
-<p class="upd">Relevé du {upd_txt} · <a class="btn" href="{url('/?carburant=' + key)}">Voir la carte du {E(lab)}</a></p>
+<p class="upd">Relevé du {upd_txt} <a class="btn" href="{url('/?carburant=' + key)}">Voir la carte du {E(lab)}</a></p>
 <section class="cards"><div class="card"><h3>Moyenne nationale</h3><p class="big">{eur(round(n['avg']))}</p><p>{chg}</p></div>
 <div class="card"><h3>Le moins cher</h3><p class="big">{eur(n['min'])}</p><p>{E(S[ids[0]][8] or S[ids[0]][3]) + ' · ' + E(S[ids[0]][3]) if ids else ''}</p></div>
 <div class="card"><h3>Département le moins cher</h3><p class="big">{eur(round(drows[0][0])) if drows else '—'}</p><p>{E(DEPN.get(drows[0][1], '')) if drows else ''}</p></div></section>
@@ -648,7 +658,7 @@ def main():
                  f"ce qui place {E(b)} au <b>{rank + 1}<sup>e</sup> rang</b> des {len(brows)} enseignes les moins chères pour le gazole." if g else ""))
         body = f"""<h1>Prix des carburants chez {E(b)}</h1>
 <p class="lead">{lead}</p>
-<p class="upd">Relevé du {upd_txt} · <a class="btn" href="{url('/enseignes/')}">Comparer toutes les enseignes</a></p>
+<p class="upd">Relevé du {upd_txt} <a class="btn" href="{url('/enseignes/')}">Comparer toutes les enseignes</a></p>
 <section class="cards">{cards}</section>
 {tops}
 {f'<h2>Prix moyen du gazole chez {E(b)} par département</h2><div class="tw"><table class="pt"><thead><tr><th>Département</th><th>Stations</th><th>Prix moyen</th></tr></thead><tbody>{dtab}</tbody></table></div>' if dtab else ''}"""
@@ -895,13 +905,14 @@ document.getElementById('f').href='{SITE_URL}/?cp='+cp;}}).catch(function(){{doc
         city_link = city_path.get(city_key)
         body = f"""<h1>{E(nm)}</h1>
 <p class="lead">{E(s[4])}{', ' if s[4] else ''}{E(s[2])} {E(s[3])}{(' · ' + brand_html) if brand_html else ''}{' · <b>automate 24h/24</b>' if h24 else ''}</p>
-<p class="upd">Relevé du {upd_txt} · <a class="btn" href="{url('/?st=' + s[7])}">Voir sur la carte</a> · <a href="https://www.google.com/maps/dir/?api=1&amp;destination={s[0]},{s[1]}" rel="noopener" target="_blank">Itinéraire</a></p>
+<p class="upd">Relevé du {upd_txt} <a class="btn" href="{url('/?st=' + s[7])}">Voir sur la carte</a> <a class="dt-only" href="https://www.google.com/maps/dir/?api=1&amp;destination={s[0]},{s[1]}" rel="noopener" target="_blank">Itinéraire</a></p>
 <section class="cards">{cards}</section>
 {f'<h2>Moins cher à côté ?</h2><p class="prose">{verdict}</p>' if verdict else ''}
 {f'<h2>Stations à proximité ({E(FUELS[main_k][1])})</h2><div class="tw"><table class="pt"><thead><tr><th>Station</th><th>Distance</th><th>{E(FUELS[main_k][1])}</th></tr></thead><tbody>{nb_rows}</tbody></table></div>' if nb_rows else ''}
 {f'<h2>Évolution des prix sur 4 mois</h2>{charts}' if charts else ''}
 {('<h2>Services</h2><ul class="chips">' + ''.join(f'<li>{E(x)}</li>' for x in svc) + '</ul>') if svc else ''}
-<p>{f'<a href="{url(city_link)}">Toutes les stations de {E(s[3])} ({E(s[2])}) →</a> · ' if city_link else ''}<a href="{url(dep_path[d])}">Prix dans le département {E(DEPN.get(d, d))} →</a></p>"""
+<p>{f'<a href="{url(city_link)}">Toutes les stations de {E(s[3])} ({E(s[2])}) →</a> · ' if city_link else ''}<a href="{url(dep_path[d])}">Prix dans le département {E(DEPN.get(d, d))} →</a></p>
+<div class="actbar"><a class="pri" href="https://www.google.com/maps/dir/?api=1&amp;destination={s[0]},{s[1]}" rel="noopener" target="_blank">Itinéraire</a><a href="{url('/?st=' + s[7])}">Carte</a><button type="button" data-fav="{s[7]}" aria-pressed="false"><span>Ajouter aux favoris</span></button></div>"""
         prices_txt = ", ".join(f"{FUELS[k][1]} {eur(s[5][k])}" for k in fk[:3])
         title = f"{nm} à {s[3]} : prix {', '.join(FUELS[k][1] for k in fk[:3])} aujourd'hui"
         desc = f"{prices_txt} à {nm}, {s[4]} {s[2]} {s[3]} (relevé du {fr_date(today)}). Historique des prix et stations moins chères à proximité."
@@ -949,7 +960,7 @@ document.getElementById('f').href='{SITE_URL}/?cp='+cp;}}).catch(function(){{doc
         others = " · ".join(f'<a href="{url(fuel_dep_path[(k2, d)])}">{E(FUELS[k2][1])}</a>' for k2 in range(6) if k2 != k and (k2, d) in fuel_dep_path)
         body = f"""<h1>Prix du {E(full)} : {E(dn)} ({d})</h1>
 <p class="lead">Le {fr_date(today)}, le {E(full)} coûte en moyenne <b>{eur(round(a)) if a else '—'}</b> dans le département {E(dn)}, {cmp_nat(a, k).replace('<span class="down">', '').replace('<span class="up">', '').replace('</span>', '').replace('▼ ', 'soit ').replace('▲ ', 'soit ') if a else ''}. Le moins cher est à <b>{eur(S[best][5][k])}</b> chez {E(S[best][8] or 'la station de ' + S[best][3])} ({E(S[best][3])}).</p>
-<p class="upd">Relevé du {upd_txt} · <a class="btn" href="{url('/?carburant=' + key)}">Voir la carte</a></p>
+<p class="upd">Relevé du {upd_txt} <a class="btn" href="{url('/?carburant=' + key)}">Voir la carte</a></p>
 <h2>Les 20 stations les moins chères</h2>
 {price_table(fresh, S, [k], show_city=True, limit=20)}
 {trend}
@@ -979,7 +990,7 @@ document.getElementById('f').href='{SITE_URL}/?cp='+cp;}}).catch(function(){{doc
             d = dep_of(S[ids[0]][2])
             body = f"""<h1>Prix du {E(full)} à {E(nm)}</h1>
 <p class="lead">Le {fr_date(today)}, le {E(full)} le moins cher à {E(nm)} est à <b>{eur(S[fresh[0]][5][k])}</b> chez {E(S[fresh[0]][8] or 'la station ' + S[fresh[0]][4])}. Prix moyen : {eur(round(a))} sur {len(ids)} stations, {cmp_nat(a, k).replace('<span class="down">', '').replace('<span class="up">', '').replace('</span>', '').replace('▼ ', 'soit ').replace('▲ ', 'soit ')}. Entre la moins chère et la plus chère, l'écart atteint {fmt2(gain)} € sur un plein de {TANK} litres.</p>
-<p class="upd">Relevé du {upd_txt} · <a class="btn" href="{url(ppath)}">Tous les carburants à {E(nm)}</a></p>
+<p class="upd">Relevé du {upd_txt} <a class="btn" href="{url(ppath)}">Tous les carburants à {E(nm)}</a></p>
 <h2>Toutes les stations de {E(nm)} qui vendent du {E(lab)}</h2>
 {price_table(ids, S, [k], show_city=True)}
 <p>{f'<a href="{url(fuel_dep_path[(k, d)])}">Prix du {E(lab)} dans le département {E(DEPN.get(d, d))} →</a> · ' if (k, d) in fuel_dep_path else ''}<a href="{url('/' + sl + '/')}">Prix du {E(lab)} en France →</a></p>"""
